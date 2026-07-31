@@ -2,8 +2,10 @@
   const target = document.getElementById('app');
   try {
     const parts = [
-      'assets/app/app-01.b64','assets/app/app-02.b64','assets/app/app-03.b64','assets/app/app-04.b64',
-      'assets/app/app-05.b64','assets/app/app-06.b64','assets/app/app-07.b64','assets/app/app-08.b64'
+      'assets/app/app-01.b64','assets/app/app-02.b64',
+      'assets/app/app-03a.b64','assets/app/app-03b.b64','assets/app/app-03c.b64',
+      'assets/app/app-04.b64','assets/app/app-05.b64','assets/app/app-06.b64',
+      'assets/app/app-07.b64','assets/app/app-08.b64'
     ];
     const encoded = (await Promise.all(parts.map(async (path) => {
       const response = await fetch(path, { cache: 'no-store' });
