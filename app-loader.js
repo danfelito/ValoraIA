@@ -14,7 +14,20 @@
     }))).join('');
     const binary = atob(encoded);
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const source = new TextDecoder().decode(bytes);
+    let source = new TextDecoder().decode(bytes);
+
+    // Fuerza el enlace de confirmación hacia el dominio público de producción.
+    source = source.replace(
+      "options:{data:{full_name:",
+      "options:{emailRedirectTo:window.location.origin+'/',data:{full_name:"
+    );
+
+    // Limpia fragmentos de error viejos para que no bloqueen una nueva sesión.
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    if (hash.get('error')) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+
     new Function(source)();
   } catch (error) {
     console.error(error);
