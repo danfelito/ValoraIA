@@ -8,6 +8,10 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <nav style="position:fixed;right:18px;top:18px;z-index:9999;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+    <a href="servicios.html" style="background:#176b52;color:white;padding:10px 14px;border-radius:10px;text-decoration:none;font:700 14px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.15)">Solicitar avalúo</a>
+    <a href="operaciones.html" style="background:white;color:#17332b;padding:10px 14px;border-radius:10px;text-decoration:none;font:700 14px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.15)">Administración</a>
+  </nav>
   <div id="app"><div class="boot">Cargando ValoraIA…</div></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8/dist/umd/supabase.min.js" onerror="document.getElementById('app').innerHTML='<div class=\'fatal\'>No se pudo cargar Supabase. Verifica la conexión a internet.</div>'"></script>
   <script src="config.js"></script>
