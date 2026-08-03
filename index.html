@@ -1,20 +1,126 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="ValoraIA, expediente profesional de valuación inmobiliaria" />
-  <title>ValoraIA · Plataforma profesional</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ValoraIA organiza la información de tu inmueble y te guía hacia una opinión de valor comercial o un avalúo profesional.">
+  <title>ValoraIA · Conoce el valor de tu inmueble</title>
+  <link rel="stylesheet" href="portal.css">
+  <script>
+    (() => {
+      const query = new URLSearchParams(window.location.search);
+      const authHash = /(?:access_token|refresh_token|error)=/.test(window.location.hash);
+      if (authHash || query.has('code') || query.has('error')) {
+        window.location.replace(`profesional.html${window.location.search}${window.location.hash}`);
+      }
+    })();
+  </script>
 </head>
-<body>
-  <nav style="position:fixed;right:18px;top:18px;z-index:9999;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-    <a href="servicios.html" style="background:#176b52;color:white;padding:10px 14px;border-radius:10px;text-decoration:none;font:700 14px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.15)">Solicitar avalúo</a>
-    <a href="operaciones.html" style="background:white;color:#17332b;padding:10px 14px;border-radius:10px;text-decoration:none;font:700 14px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.15)">Administración</a>
-  </nav>
-  <div id="app"><div class="boot">Cargando ValoraIA…</div></div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.8/dist/umd/supabase.min.js" onerror="document.getElementById('app').innerHTML='<div class=\'fatal\'>No se pudo cargar Supabase. Verifica la conexión a internet.</div>'"></script>
-  <script src="config.js"></script>
-  <script src="app-loader.js"></script>
+<body class="landing-page">
+  <div class="shell landing-shell">
+    <header class="topbar landing-topbar">
+      <a class="brand brand-link" href="index.html" aria-label="Inicio ValoraIA">
+        <span class="brand-mark">V</span>
+        <span>ValoraIA</span>
+      </a>
+      <nav class="nav access-nav" aria-label="Accesos internos">
+        <a href="profesional.html">Panel profesional</a>
+        <a href="operaciones.html">Administración</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="landing-hero" id="organizacion">
+        <div class="hero-copy">
+          <span class="eyebrow-light">Organización</span>
+          <h1>Conoce el valor de tu inmueble con información mejor organizada.</h1>
+          <p>ValoraIA reúne los datos, documentos y características de la propiedad en un expediente digital. La inteligencia artificial ayuda a leer la información, detectar datos faltantes y preparar una base más clara para analizar el inmueble.</p>
+          <div class="hero-points" aria-label="Capacidades principales">
+            <span>Expediente centralizado</span>
+            <span>Lectura documental con IA</span>
+            <span>Comparación y trazabilidad</span>
+          </div>
+        </div>
+        <aside class="process-card" aria-label="Proceso ValoraIA">
+          <span class="process-label">De la información a una decisión</span>
+          <ol class="process-list">
+            <li><strong>Captura</strong><span>Datos del inmueble y del solicitante.</span></li>
+            <li><strong>Organiza</strong><span>Documentos, fotografías y antecedentes.</span></li>
+            <li><strong>Analiza</strong><span>La IA estructura información y apoya la revisión.</span></li>
+            <li><strong>Entrega</strong><span>Una estimación comercial o un expediente profesional.</span></li>
+          </ol>
+        </aside>
+      </section>
+
+      <section class="section-block why-section" aria-labelledby="why-title">
+        <div class="section-heading">
+          <span class="eyebrow">Una decisión mejor sustentada</span>
+          <h2 id="why-title">¿Por qué es importante conocer el valor?</h2>
+          <p>Un valor razonado ayuda a reducir la improvisación y a negociar con una referencia más clara.</p>
+        </div>
+        <div class="purpose-grid">
+          <article><span>01</span><h3>Vender o comprar</h3><p>Definir un rango coherente y detectar diferencias frente al mercado.</p></article>
+          <article><span>02</span><h3>Solicitar un crédito</h3><p>Preparar la información que normalmente requiere una revisión formal.</p></article>
+          <article><span>03</span><h3>Invertir o negociar</h3><p>Comparar escenarios antes de comprometer capital o aceptar una oferta.</p></article>
+          <article><span>04</span><h3>Orden patrimonial</h3><p>Documentar una referencia útil para herencias, sociedades o planeación.</p></article>
+        </div>
+      </section>
+
+      <section class="section-block paths-section" id="opciones" aria-labelledby="paths-title">
+        <div class="section-heading centered">
+          <span class="eyebrow">Elige el alcance que necesitas</span>
+          <h2 id="paths-title">Dos caminos, un expediente bien organizado</h2>
+          <p>Selecciona la alternativa adecuada según la decisión que vas a tomar.</p>
+        </div>
+
+        <div class="path-stack">
+          <article class="path-card commercial-path">
+            <div class="path-number">1</div>
+            <div class="path-content">
+              <span class="badge">Primera referencia</span>
+              <h3>Opinión de valor comercial</h3>
+              <p>Para conocer un rango estimado de mercado y contar con una base inicial al vender, comprar o negociar.</p>
+              <ul class="result-list">
+                <li>Expediente digital con los datos proporcionados.</li>
+                <li>Estimación de valor y referencia por metro cuadrado.</li>
+                <li>Contexto de comparables y variables disponibles.</li>
+                <li>Resultado orientativo; no sustituye un avalúo firmado.</li>
+              </ul>
+            </div>
+          </article>
+
+          <article class="path-card professional-path">
+            <div class="path-number">2</div>
+            <div class="path-content">
+              <span class="badge">Revisión especializada</span>
+              <h3>Avalúo profesional</h3>
+              <p>Para casos que requieren revisión documental, visita, metodología técnica y participación de un perito.</p>
+              <ul class="result-list">
+                <li>Expediente clasificado y visible para administración.</li>
+                <li>Asignación y seguimiento por un profesional adecuado.</li>
+                <li>Revisión de documentos, características y evidencia.</li>
+                <li>Preparación del informe conforme al propósito solicitado.</li>
+              </ul>
+            </div>
+          </article>
+        </div>
+
+        <div class="decision-panel">
+          <div>
+            <span class="eyebrow">Comienza tu solicitud</span>
+            <h2>¿Qué resultado necesitas?</h2>
+          </div>
+          <div class="decision-actions">
+            <a class="btn primary btn-large" href="servicios.html?tipo=comercial">Opinión de valor comercial</a>
+            <a class="btn secondary btn-large" href="servicios.html?tipo=profesional">Avalúo profesional</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer landing-footer">
+      <span>ValoraIA · Plataforma de organización y apoyo para valuación inmobiliaria.</span>
+    </footer>
+  </div>
 </body>
 </html>
