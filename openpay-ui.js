@@ -41,9 +41,14 @@
     button.disabled = true;
     status.innerHTML = '<div class="status">Preparando tu expediente y la liga segura de pago…</div>';
     try {
-      const saved = await db.rpc('submit_valuation_request', { payload });
-      if (saved.error) throw saved.error;
-      const checkout = await db.functions.invoke('openpay-create-checkout', { body: { request_id: saved.data.request_id } });
+      let requestId = sessionStorage.getItem('valoraia_pending_commercial_request');
+      if (!requestId) {
+        const saved = await db.rpc('submit_valuation_request', { payload });
+        if (saved.error) throw saved.error;
+        requestId = saved.data.request_id;
+        sessionStorage.setItem('valoraia_pending_commercial_request', requestId);
+      }
+      const checkout = await db.functions.invoke('openpay-create-checkout', { body: { request_id: requestId } });
       if (checkout.error) throw checkout.error;
       if (!checkout.data?.checkout_url) throw new Error(checkout.data?.error || 'No se recibió la liga de pago.');
       location.assign(checkout.data.checkout_url);
@@ -77,6 +82,7 @@
   }
 
   function statusView() {
+    sessionStorage.removeItem('valoraia_pending_commercial_request');
     root.innerHTML = `<section class="selected-service commercial-selected"><div><span class="badge">Opinión de valor comercial</span><h1>Seguimiento de tu documento</h1><p>El PDF se genera únicamente después de que Openpay confirma el pago.</p></div></section><section class="card payment-status-card"><div class="status-icon">✓</div><h2>Estamos verificando tu pago</h2><p class="muted">Después analizaremos los comparables, generaremos el PDF y lo enviaremos al correo registrado.</p><div id="payment-progress" class="progress-list"><div class="progress-item active">1. Confirmación de pago</div><div class="progress-item">2. Análisis y comparables</div><div class="progress-item">3. Generación del PDF</div><div class="progress-item">4. Envío por correo</div></div><div id="status-box"><div class="status">Consultando estado…</div></div><div class="actions"><a class="btn secondary" href="index.html">Volver al inicio</a></div></section>`;
     poll(0);
   }
