@@ -24,6 +24,19 @@
       `options:{emailRedirectTo:'${redirectUrl}',data:{full_name:`
     );
 
+    // La relación properties puede llegar como objeto o arreglo. Normalizarla evita
+    // intentar insertar una segunda propiedad para el mismo case_id.
+    source = source.replace(
+      "const existing=(S.selected.properties||[])[0];",
+      "const existing=Array.isArray(S.selected.properties)?S.selected.properties[0]:(S.selected.properties||null);"
+    );
+
+    // Expone solamente el id del expediente activo para mejoras visuales externas.
+    source = source.replace(
+      "async function loadCaseDetails(id,keepTab=false){",
+      "async function loadCaseDetails(id,keepTab=false){window.__valoraiaCurrentCaseId=id;window.dispatchEvent(new CustomEvent('valoraia-case-loaded',{detail:{case_id:id}}));"
+    );
+
     // Muestra un reenvío explícito sin obligar al usuario a registrarse otra vez.
     source = source.replace(
       `<div id="auth-msg"></div><button class="btn primary full" type="submit">\${S.authMode==='signin'?'Ingresar':'Crear cuenta'}</button></form>`,
