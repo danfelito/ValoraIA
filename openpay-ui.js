@@ -6,13 +6,15 @@
   const params = new URLSearchParams(location.search);
   const isCommercial = params.get('tipo') !== 'profesional';
   const returnedRequest = params.get('solicitud');
+  const testMode = params.get('prueba') === '1';
+  const pendingKey = testMode ? 'valoraia_pending_commercial_test' : 'valoraia_pending_commercial_request';
   const root = document.getElementById('app');
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const note = (text, error=false) => `<div class="status ${error ? 'error' : 'ok'}">${esc(text)}</div>`;
 
   function productCard() {
     return `<section class="commercial-product card" data-openpay-product>
-      <div class="price-header"><div><span class="eyebrow">Servicio digital</span><h2>Conoce el costo antes de continuar</h2></div><div class="price-tag"><strong>$365</strong><span>MXN · precio final</span></div></div>
+      <div class="price-header"><div><span class="eyebrow">Servicio digital</span><h2>Conoce el costo antes de continuar</h2></div><div class="price-tag"><strong>${testMode ? '$1' : '$365'}</strong><span>MXN · ${testMode ? 'prueba sandbox' : 'precio final'}</span></div></div>
       <div class="delivery-grid"><div><h3>Recibirás</h3><ul class="check-list"><li>Opinión de valor comercial en PDF.</li><li>Valor estimado, rango orientativo y referencia por m².</li><li>Comparables públicos utilizados y metodología.</li><li>Alcance y limitaciones del resultado.</li></ul></div><div><h3>Forma de entrega</h3><ul class="check-list"><li>Envío al correo registrado.</li><li>Descarga segura desde tu expediente.</li><li>Comprobante del pago de Openpay.</li><li>Si solicitas factura, recibirás PDF y XML cuando sea emitida.</li></ul></div></div>
       <div class="notice"><strong>Importante:</strong> Es una opinión orientativa y no sustituye un avalúo profesional firmado para crédito, juicio, garantía o trámites regulados.</div>
     </section>`;
@@ -41,15 +43,18 @@
     button.disabled = true;
     status.innerHTML = '<div class="status">Preparando tu expediente y la liga segura de pago…</div>';
     try {
-      let requestId = sessionStorage.getItem('valoraia_pending_commercial_request');
+      let requestId = sessionStorage.getItem(pendingKey);
       if (!requestId) {
         const saved = await db.rpc('submit_valuation_request', { payload });
         if (saved.error) throw saved.error;
         requestId = saved.data.request_id;
-        sessionStorage.setItem('valoraia_pending_commercial_request', requestId);
+        sessionStorage.setItem(pendingKey, requestId);
       }
-      const checkout = await db.functions.invoke('openpay-create-checkout', { body: { request_id: requestId } });
-      if (checkout.error) throw checkout.error;
+      const checkout = await db.functions.invoke('openpay-create-checkout', { body: { request_id: requestId, test_mode: testMode } });
+      if (checkout.error) {
+        const detail = await checkout.error.context?.json?.().catch(() => null);
+        throw new Error(detail?.error || checkout.error.message);
+      }
       if (!checkout.data?.checkout_url) throw new Error(checkout.data?.error || 'No se recibió la liga de pago.');
       location.assign(checkout.data.checkout_url);
     } catch (error) {
@@ -75,14 +80,15 @@
     });
     const button = document.getElementById('send');
     if (button) {
-      button.textContent = 'Generar documento · $365 MXN';
-      button.insertAdjacentHTML('afterend', '<p class="button-helper">Al continuar guardarás el expediente y pasarás a la pasarela segura de Openpay. El PDF se genera únicamente después de que el pago sea confirmado.</p>');
+      button.textContent = `Generar documento · ${testMode ? '$1 MXN (prueba)' : '$365 MXN'}`;
+      button.insertAdjacentHTML('afterend', `<p class="button-helper">Al continuar guardarás el expediente y pasarás a la pasarela segura de Openpay. ${testMode ? 'Prueba interna: solo la cuenta administradora puede usar $1 en sandbox. ' : ''}El PDF se genera únicamente después de que el pago sea confirmado.</p>`);
     }
     form.addEventListener('submit', commercialSubmit, true);
   }
 
   function statusView() {
     sessionStorage.removeItem('valoraia_pending_commercial_request');
+    sessionStorage.removeItem('valoraia_pending_commercial_test');
     root.innerHTML = `<section class="selected-service commercial-selected"><div><span class="badge">Opinión de valor comercial</span><h1>Seguimiento de tu documento</h1><p>El PDF se genera únicamente después de que Openpay confirma el pago.</p></div></section><section class="card payment-status-card"><div class="status-icon">✓</div><h2>Estamos verificando tu pago</h2><p class="muted">Después analizaremos los comparables, generaremos el PDF y lo enviaremos al correo registrado.</p><div id="payment-progress" class="progress-list"><div class="progress-item active">1. Confirmación de pago</div><div class="progress-item">2. Análisis y comparables</div><div class="progress-item">3. Generación del PDF</div><div class="progress-item">4. Envío por correo</div></div><div id="status-box"><div class="status">Consultando estado…</div></div><div class="actions"><a class="btn secondary" href="index.html">Volver al inicio</a></div></section>`;
     poll(0);
   }
