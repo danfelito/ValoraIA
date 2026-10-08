@@ -3,3 +3,7 @@
 !.env.example
 .DS_Store
 node_modules/
+
+tmp/
+output/
+supabase/.temp/

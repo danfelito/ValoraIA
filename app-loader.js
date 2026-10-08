@@ -16,7 +16,7 @@
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     let source = new TextDecoder().decode(bytes);
 
-    const redirectUrl = 'https://valoraia.onrender.com/';
+    const redirectUrl = 'https://valoraia.onrender.com/cuenta.html';
 
     // Todos los correos de confirmación regresan al dominio público de producción.
     source = source.replace(
@@ -67,6 +67,10 @@ async function resendConfirmation(){const input=document.querySelector('#auth-fo
       history.replaceState(null, '', window.location.pathname + window.location.search);
     }
 
+    source = source.replace("function resetData(){", "function resetData(){window.__valoraiaCurrentCaseId=null;");
+    source = source.replace("db.auth.onAuthStateChange(async(_event,session)=>{", "db.auth.onAuthStateChange((_event,session)=>{setTimeout(async()=>{");
+    source = source.replace("else resetData();render();});}", "else resetData();render();},0);});}");
+    source = source.replace("S.user=data.session?.user||null;if(S.user)await loadWorkspace();", "const verified=await db.auth.getUser();S.user=verified.error?null:verified.data.user;if(S.user)await loadWorkspace();");
     new Function(source)();
 
     const notice = localStorage.getItem('valoraia_auth_notice');
