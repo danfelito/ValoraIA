@@ -1,6 +1,6 @@
 import { REPORT_VERSION, canonicalUrl, resolveSubject, selectComparables, marketStatistics, documentCandidates, contextualReferences } from "./commercial-core.ts";
 import type { Row } from "./commercial-core.ts";
-import { check, loadSources, processSourceStep, requestAI, outputText, consultedUrls, background, digest, base64, validEvidence } from "./commercial-evidence.ts";
+import { check, loadSources, processSourceStep, requestAI, outputText, consultedUrls, background, digest, validEvidence } from "./commercial-evidence.ts";
 import { inputSnapshot } from "./report-inputs.ts";
 export { inputSnapshot } from "./report-inputs.ts";
 import { commercialPdf } from "./commercial-pdf.ts";
@@ -85,6 +85,15 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
         await continueRun(request, runId, config); return;
       }
     }
+    // Extraction can update source metadata. Take a baseline after those writes,
+    // while checking that no unread source entered the input set during reading.
+    const prepared = await inputSnapshot(admin, request);
+    const sourceInputs = (sources: Row[]) => JSON.stringify(sources.map(s => ({ id: s.id, kind: s.kind,
+      path: s.storage_path, url: s.source_url, title: s.title, category: s.category })).sort((a,b) => a.id.localeCompare(b.id)));
+    if (prepared.clientFingerprint !== start.clientFingerprint) throw new Error("La ficha cambió durante la lectura. Regenera el informe con los datos actuales");
+    if (sourceInputs(prepared.sources) !== sourceInputs(start.sources)) {
+      await continueRun(request, runId, config); return;
+    }
     const open = check(await admin.from("data_conflicts").select("field_key").eq("case_id", request.case_id).eq("status", "open").eq("severity", "critical")) || [];
     if (open.some((c: Row) => ["land_area_m2", "built_area_m2", "address", "address_line"].includes(c.field_key))) throw new Error("Hay conflictos documentales críticos sin resolver");
     const subject = resolveSubject(start.property, request, documents, start.decisions);
@@ -115,7 +124,7 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
     const refreshedCase = check(await admin.from("valuation_cases").select("*").eq("id", request.case_id).single());
     const refreshedRequest = request.internal ? request : check(await admin.from("service_requests").select("*").eq("id", request.id).single());
     const end = await inputSnapshot(admin, { ...refreshedRequest, valuation_cases: refreshedCase });
-    if (end.clientFingerprint !== start.clientFingerprint) throw new Error("Los datos del cliente cambiaron durante el análisis. Regenera el informe con la ficha actualizada");
+    if (end.fingerprint !== prepared.fingerprint) throw new Error("La ficha o las fuentes cambiaron durante el análisis. Regenera el informe para incorporar toda la información actual");
     const report: Row = { version: REPORT_VERSION, preview: !!config.preview, service_type: request.service_type,
       folio: request.valuation_cases?.folio || request.case_id, generated_date: new Intl.DateTimeFormat("es-MX", { timeZone: "America/Mexico_City" }).format(new Date()),
       generated_at: new Date().toISOString(), client: request.client_name || "Solicitante no indicado", subject, statistics,
@@ -151,24 +160,11 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
       subject_area_m2: subject.area, price_per_m2: statistics.unit, estimated_value: statistics.estimated, low_value: statistics.low, high_value: statistics.high,
       comparable_count: statistics.count, generated_at: report.generated_at, error_message: null });
     if (config.preview) return; // Preview never changes payment, case completion, professional calculations or sends mail.
-    check(await admin.from("valuation_calculations").upsert({ organization_id: request.organization_id, case_id: request.case_id, market_value: statistics.estimated,
-      final_value: statistics.estimated, low_value: statistics.low, high_value: statistics.high, market_weight: 1,
-      market_inputs: { version: REPORT_VERSION, subject, statistics, comparables: selection.included, input_fingerprint: end.fingerprint }, status: "draft" }, { onConflict: "case_id" }));
-    check(await admin.from("service_requests").update({ document_status: "ready", document_storage_path: path, document_generated_at: report.generated_at,
-      document_emailed_at: null, status: "completed" }).eq("id", request.id).eq("service_type", "commercial"));
-    check(await admin.from("valuation_cases").update({ status: "completed", progress: 100 }).eq("id", request.case_id));
-    // Existing paid-delivery flow only. A preview can never enter this branch.
-    const mailKey = Deno.env.get("RESEND_API_KEY"), from = Deno.env.get("VALORAIA_FROM_EMAIL");
-    if (mailKey && from) {
-      try {
-        const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: "Bearer " + mailKey,
-          "Content-Type": "application/json", "Idempotency-Key": "commercial/" + request.id + "/" + runId },
-          body: JSON.stringify({ from, to: [request.client_email], subject: "Tu opinión de valor comercial " + report.folio,
-            html: "<p>Tu opinión de valor comercial está lista. El PDF incluye evidencia, comparables, metodología y limitaciones.</p>",
-            attachments: [{ filename: "ValoraIA-" + report.folio + ".pdf", content: base64(bytes) }] }), signal: AbortSignal.timeout(20000) });
-        if (response.ok) check(await admin.from("service_requests").update({ document_emailed_at: new Date().toISOString() }).eq("id", request.id));
-      } catch (error) { console.error("Correo pendiente; PDF disponible", error); }
-    }
+    // Authorized preparation only. Delivery, case closure and professional
+    // calculations require a separate reviewed action, never report generation.
+    check(await admin.from("service_requests").update({ document_status: "ready", document_storage_path: path,
+      document_generated_at: report.generated_at, document_emailed_at: null }).eq("id", request.id).eq("service_type", "commercial"));
+
   } catch (error) {
     console.error(error);
     if (!(await current(admin, request, runId, config).catch(() => false))) return;

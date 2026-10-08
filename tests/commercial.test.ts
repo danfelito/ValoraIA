@@ -125,6 +125,10 @@ test("procesa todos los bloques, verifica firma y reutiliza extracción sin repe
   try {
     const first=await processSourceStep(db,source,config);
     assert.equal(first.evidence.completed_pages,4);assert.equal(first.evidence.complete,false);
+    const databaseOrder=(value:any):any=>Array.isArray(value)?value.map(databaseOrder):value&&typeof value==='object'
+      ?Object.fromEntries(Object.keys(value).sort().reverse().map(key=>[key,databaseOrder(value[key])])):value;
+    source.analysis=databaseOrder(source.analysis);
+    assert.equal(await validEvidence(source.analysis.commercial_evidence,"org-test","test-secret"),true);
     const second=await processSourceStep(db,source,config);
     assert.equal(second.evidence.completed_pages,6);assert.equal(second.evidence.complete,true);
     await processSourceStep(db,source,config);assert.equal(calls,2);
@@ -137,16 +141,17 @@ test("flujo integrado: documentos, consulta web, PDF y descarga sin mezclar cost
   const files=new Map<string,Uint8Array>([["valuation-intake/org-test/request-test/intake.pdf",await inputPdf(2)],["valuation-knowledge/org-test/cost.pdf",await inputPdf(1)]]);
   const rows:Row={
     service_requests:[structuredClone(request)],properties:[{...property,case_id:"case-test"}],
-    valuation_cases:[{id:"case-test",...request.valuation_cases,status:"draft"}],commercial_reports:[],adopted_values:[],data_conflicts:[],market_comparables:[],valuation_calculations:[],
+    valuation_cases:[{id:"case-test",...request.valuation_cases,status:"draft"}],commercial_reports:[],adopted_values:[],data_conflicts:[],market_comparables:[],valuation_calculations:[{case_id:"case-test",final_value:777,status:"approved"}],
     intake_documents:[{id:"doc-intake",organization_id:"org-test",request_id:"request-test",file_name:"Plano de prueba.pdf",mime_type:"application/pdf",storage_path:"org-test/request-test/intake.pdf",analysis:{}}],
     documents:[],knowledge_sources:[{id:"doc-knowledge",organization_id:"org-test",title:"Costos simulados.pdf",file_name:"Costos simulados.pdf",source_type:"pdf",category:"mercado",mime_type:"application/pdf",storage_path:"org-test/cost.pdf",analysis:{},status:"pending"}],
   };
   (globalThis as any).__fakeDB=fakeDb(rows,files);
-  const originalFetch=globalThis.fetch;const jobs:Promise<any>[]=[];let handler:any;let searches=0,extractions=0;
-  (globalThis as any).Deno={env:{get:(name:string)=>({SUPABASE_URL:"https://project.example.com",SUPABASE_SERVICE_ROLE_KEY:"test-secret",SUPABASE_ANON_KEY:"test-anon",OPENAI_API_KEY:"test-key"} as Row)[name]},serve:(fn:any)=>handler=fn};
+  const originalFetch=globalThis.fetch;const jobs:Promise<any>[]=[];let handler:any;let searches=0,extractions=0,mails=0;
+  (globalThis as any).Deno={env:{get:(name:string)=>({SUPABASE_URL:"https://project.example.com",SUPABASE_SERVICE_ROLE_KEY:"test-secret",SUPABASE_ANON_KEY:"test-anon",OPENAI_API_KEY:"test-key",RESEND_API_KEY:"test-mail-key",VALORAIA_FROM_EMAIL:"test@example.com"} as Row)[name]},serve:(fn:any)=>handler=fn};
   (globalThis as any).EdgeRuntime={waitUntil:(job:Promise<any>)=>jobs.push(job)};
   globalThis.fetch=async(url:any,options:any)=>{
     if(String(url).includes("/functions/v1/generate-commercial-report"))return handler(new Request(String(url),options));
+    if(String(url).includes("resend.com")){mails++;return Response.json({id:"unexpected-mail"});}
     const body=JSON.parse(options.body);
     if(typeof body.input==="string"&&body.input.startsWith("REVISIÓN DE FICHA:"))return Response.json({status:"completed",output_text:JSON.stringify({observations:["Datos simulados contrastados con la ficha"],missing_information:["Visita física pendiente"],documentary_contrasts:[],declared_features:[]})});
     if(body.tools?.[0]?.type==="web_search"){
@@ -167,7 +172,9 @@ test("flujo integrado: documentos, consulta web, PDF y descarga sin mezclar cost
     const response=await handler(new Request("https://project.example.com/run",{method:"POST",headers:{Authorization:"Bearer test-secret","Content-Type":"application/json"},body:'{"request_id":"request-test"}'}));
     assert.equal(response.status,202);
     for(let i=0;i<jobs.length;i++)await jobs[i];
-    assert.equal(searches,1);assert.equal(extractions,2);
+    assert.equal(searches,1);assert.equal(extractions,2);assert.equal(mails,0);
+    assert.equal(rows.valuation_cases[0].status,"draft");assert.equal(rows.valuation_calculations[0].final_value,777);
+    assert.equal(rows.service_requests[0].payment_status,"paid");
     assert.equal(rows.service_requests[0].document_status,"ready");
     const report=rows.commercial_reports[0];
     assert.equal(report.estimated_value,2100000);
@@ -216,6 +223,21 @@ test("la vista previa exige rol y no cobra, envía correos ni altera el avalúo 
     rows.properties[0].notes="Acabados actualizados por el cliente";
     assert.equal((await (await handler(req({case_id:"case-test",action:"status"}))).json()).outdated,true);
     const pdf=await PDFDocument.load(files.get("valuation-documents/"+preview.pdf_storage_path)!);assert.ok(pdf.getPageCount()>=6);
+    // A PDF added during the web search must not be claimed as analyzed by
+    // adopting the new fingerprint onto the old evidence set.
+    const completedJobs=jobs.length, fileCount=files.size, searchFetch=globalThis.fetch;
+    let added=false;
+    globalThis.fetch=async(url:any,options:any)=>{
+      if(JSON.parse(options.body).tools?.[0]?.type==="web_search"&&!added){
+        added=true;rows.knowledge_sources.push({id:"new-during-search",organization_id:"org-test",title:"PDF agregado durante el sondeo",
+          source_type:"pdf",storage_path:"org-test/new.pdf",category:"avaluos",analysis:{},status:"pending"});
+      }
+      return searchFetch(url,options);
+    };
+    assert.equal((await handler(req({case_id:"case-test",force:true}))).status,202);
+    for(let i=completedJobs;i<jobs.length;i++)await jobs[i];
+    assert.equal(preview.status,"needs_review");assert.match(preview.error_message,/fuentes cambiaron/);
+    assert.equal(files.size,fileCount);assert.equal(mail,0);
   }finally{globalThis.fetch=original;delete (globalThis as any).Deno;delete (globalThis as any).EdgeRuntime;}
 });
 

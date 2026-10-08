@@ -22,7 +22,7 @@ export async function loadSources(admin: any, request: Row): Promise<Row[]> {
 }
 
 
-function stable(value: any): any {
+export function stable(value: any): any {
   if (Array.isArray(value)) return value.map(stable);
   if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])]));
   return value;

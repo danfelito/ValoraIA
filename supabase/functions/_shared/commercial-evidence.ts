@@ -1,4 +1,4 @@
-import { check, digest } from "./report-inputs.ts";
+import { check, digest, stable } from "./report-inputs.ts";
 export { check, digest, loadSources } from "./report-inputs.ts";
 import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import { PIPELINE_VERSION, canonicalUrl, validatePageCoverage } from "./commercial-core.ts";
@@ -17,7 +17,9 @@ export function base64(bytes: Uint8Array): string {
 async function sign(value: Row, secret: string): Promise<string> {
   const { signature: _, ...payload } = value;
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return base64(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(JSON.stringify(payload)))));
+  // jsonb reorders object keys on persistence. Sign a canonical representation
+  // so a valid extraction can resume after a real database round trip.
+  return base64(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(JSON.stringify(stable(payload))))));
 }
 export async function validEvidence(value: Row | null, org: string, secret: string) {
   if (!value || value.version !== PIPELINE_VERSION || value.organization_id !== org || !value.signature) return false;
