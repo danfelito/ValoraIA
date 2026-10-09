@@ -7,11 +7,26 @@ const splitName=(full:string)=>{const parts=full.trim().split(/\s+/);return {nam
 
 Deno.serve(async(req:Request)=>{
  if(req.method==="OPTIONS") return new Response("ok",{headers:cors});
+ const url=Deno.env.get("SUPABASE_URL")!,anon=Deno.env.get("SUPABASE_ANON_KEY")!,service=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+ const admin=createClient(url,service,{auth:{persistSession:false}});
+ if(req.method==="GET"){
+  const merchant=Deno.env.get("OPENPAY_MERCHANT_ID"),privateKey=Deno.env.get("OPENPAY_PRIVATE_KEY");
+  if(!merchant||!privateKey) return json({configured:false,reachable:false,environment:"sandbox"},503);
+  try{
+   const {data:cfg}=await admin.from("platform_configuration").select("organization_id").eq("singleton",true).single();
+   const {data:settings}=await admin.from("app_settings").select("openpay_environment").eq("organization_id",cfg?.organization_id).single();
+   const environment=settings?.openpay_environment==="production"?"production":"sandbox";
+   const base=environment==="production"?"https://api.openpay.mx":"https://sandbox-api.openpay.mx";
+   const response=await fetch(`${base}/v1/${merchant}`,{headers:{Authorization:`Basic ${btoa(`${privateKey}:`)}`}});
+   return json({configured:true,reachable:response.ok,environment},response.ok?200:502);
+  }catch(error){
+   console.error("openpay-health",error);
+   return json({configured:true,reachable:false,environment:"unknown"},502);
+  }
+ }
  if(req.method!=="POST") return json({error:"Método no permitido"},405);
  const auth=req.headers.get("Authorization"); if(!auth) return json({error:"Autenticación requerida"},401);
- const url=Deno.env.get("SUPABASE_URL")!,anon=Deno.env.get("SUPABASE_ANON_KEY")!,service=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
  const userClient=createClient(url,anon,{global:{headers:{Authorization:auth}}});
- const admin=createClient(url,service,{auth:{persistSession:false}});
  try{
   const {data:{user},error:userError}=await userClient.auth.getUser(); if(userError||!user) return json({error:"Sesión inválida"},401);
   const body=await req.json(); const requestId=String(body.request_id||""); if(!requestId) return json({error:"request_id es obligatorio"},400);
