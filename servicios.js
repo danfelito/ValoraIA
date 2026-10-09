@@ -18,6 +18,7 @@
 
   let session = null;
   let last = null;
+  let quickProfile = null;
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -49,20 +50,59 @@
 
   function auth() {
     root.innerHTML = `${serviceSummary()}
-      <section class="auth card compact-auth">
-        <h2>Accede para guardar tu solicitud</h2>
-        <p class="muted">El expediente quedará asociado a tu correo para que la información no se pierda.</p>
-        <form id="auth">
-          <div class="field"><label>Nombre completo</label><input name="name" autocomplete="name"></div>
-          <div class="field"><label>Correo</label><input name="email" type="email" autocomplete="email" required></div>
-          <div class="field"><label>Contraseña</label><input name="password" type="password" minlength="6" autocomplete="current-password" required></div>
-          <div class="actions">
-            <button class="btn primary" name="mode" value="signin">Ingresar</button>
-            <button class="btn secondary" name="mode" value="signup">Crear cuenta</button>
+      <section class="auth card compact-auth quick-access-card">
+        <span class="eyebrow">Acceso inmediato</span>
+        <h2>Comienza tu reporte sin contraseña</h2>
+        <p class="muted">Captura tu nombre y correo. Podrás completar el inmueble, adjuntar documentos y continuar con el reporte de inmediato.</p>
+        <form id="quick-access">
+          <div class="fields">
+            <div class="field"><label>Nombre completo</label><input name="name" autocomplete="name" required></div>
+            <div class="field"><label>Correo</label><input name="email" type="email" autocomplete="email" required></div>
           </div>
-          <div id="as"></div>
+          <button class="btn primary quick-button" type="submit">Continuar con mi reporte</button>
+          <div id="quick-status" role="status"></div>
         </form>
+        <details class="account-access">
+          <summary>Ya tengo cuenta o quiero crear una</summary>
+          <form id="auth">
+            <div class="field"><label>Nombre completo</label><input name="name" autocomplete="name"></div>
+            <div class="field"><label>Correo</label><input name="email" type="email" autocomplete="email" required></div>
+            <div class="field"><label>Contraseña</label><input name="password" type="password" autocomplete="current-password" required><small class="field-help">Puedes usar letras, números o símbolos, sin una combinación obligatoria.</small></div>
+            <div class="actions">
+              <button class="btn primary" name="mode" value="signin">Ingresar</button>
+              <button class="btn secondary" name="mode" value="signup">Crear cuenta</button>
+            </div>
+            <div id="as" role="status"></div>
+          </form>
+        </details>
       </section>`;
+
+    document.getElementById('quick-access').onsubmit = async event => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const name = String(form.get('name') || '').trim();
+      const email = String(form.get('email') || '').trim().toLowerCase();
+      const status = document.getElementById('quick-status');
+      const button = event.currentTarget.querySelector('button');
+      button.disabled = true;
+      status.innerHTML = '<div class="status">Preparando tu solicitud…</div>';
+      try {
+        const result = await db.auth.signInAnonymously({
+          options: { data: { full_name: name, contact_email: email, locale: 'es-MX' } }
+        });
+        if (result.error) throw result.error;
+        quickProfile = { name, email };
+        session = result.data.session;
+        portal();
+      } catch (error) {
+        const disabled = error?.code === 'anonymous_provider_disabled' || /anonymous sign-ins are disabled/i.test(error?.message || '');
+        status.innerHTML = note(disabled
+          ? 'El acceso inmediato aún no está habilitado. Puedes ingresar o crear una cuenta en la opción inferior.'
+          : (error.message || 'No se pudo iniciar la solicitud.'), true);
+      } finally {
+        button.disabled = false;
+      }
+    };
 
     document.getElementById('auth').onsubmit = async event => {
       event.preventDefault();
@@ -93,14 +133,18 @@
           portal();
         }
       } catch (error) {
-        status.innerHTML = note(error.message || 'No se pudo completar el acceso.', true);
+        const rateLimited = error?.code === 'over_email_send_rate_limit' || /after [0-9]+ seconds/i.test(error?.message || '');
+        status.innerHTML = note(rateLimited
+          ? 'Ya se envió un correo de confirmación. Puedes continuar ahora con el acceso inmediato de arriba, sin esperar ni solicitar otro mensaje.'
+          : (error.message || 'No se pudo completar el acceso.'), true);
       }
     };
   }
 
   function portal() {
     document.getElementById('logout').classList.remove('hidden');
-    const defaultName = session.user.user_metadata?.full_name || '';
+    const defaultName = quickProfile?.name || session.user.user_metadata?.full_name || '';
+    const defaultEmail = quickProfile?.email || session.user.user_metadata?.contact_email || session.user.email || '';
 
     root.innerHTML = `${serviceSummary()}
       <section class="card request-card">
@@ -108,7 +152,7 @@
           <h2 class="section-title">Datos del solicitante</h2>
           <div class="fields">
             <div class="field"><label>Nombre completo *</label><input name="client_name" value="${esc(defaultName)}" required></div>
-            <div class="field"><label>Correo *</label><input name="client_email" type="email" value="${esc(session.user.email)}" required></div>
+            <div class="field"><label>Correo *</label><input name="client_email" type="email" value="${esc(defaultEmail)}" required></div>
             <div class="field"><label>Teléfono *</label><input name="client_phone" required></div>
             <div class="field"><label>Teléfono alterno</label><input name="alternate_phone"></div>
             <div class="field"><label>Medio preferido</label><select name="preferred_contact"><option>WhatsApp</option><option>Llamada</option><option>Correo</option></select></div>
@@ -248,6 +292,7 @@
   document.getElementById('logout').onclick = async () => {
     await db.auth.signOut();
     session = null;
+    quickProfile = null;
     document.getElementById('logout').classList.add('hidden');
     auth();
   };

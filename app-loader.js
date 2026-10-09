@@ -31,6 +31,11 @@
       "const existing=Array.isArray(S.selected.properties)?S.selected.properties[0]:(S.selected.properties||null);"
     );
 
+    // Las cuentas profesionales aceptan cualquier combinación de caracteres que
+    // permita Supabase; la interfaz no impone una composición adicional.
+    source = source.replace('required minlength="8" autocomplete="current-password"', 'required autocomplete="current-password"');
+    source = source.split('<i>V</i> ValoraIA').join('<i>V</i> ValoraIA · Círculo Internacional');
+
     // Expone solamente el id del expediente activo para mejoras visuales externas.
     source = source.replace(
       "async function loadCaseDetails(id,keepTab=false){",

@@ -1,0 +1,8 @@
+{
+  "name": "valoraia",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --experimental-loader ./tests/runtime-loader.mjs --test tests/commercial.test.ts tests/client-access.test.mjs"
+  }
+}
