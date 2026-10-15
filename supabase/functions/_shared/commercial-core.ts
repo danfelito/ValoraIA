@@ -48,14 +48,24 @@ export function canonicalUrl(value: unknown): string | null {
   } catch { return null; }
 }
 
-export function validatePageCoverage(analysis: Row, pages: number[]) {
+export function validatePageCoverage(analysis: Row, pages: number[], options: { allowUnreadable?: boolean } = {}) {
   if (!Array.isArray(analysis.pages)) throw new Error("No se recibió evidencia por página");
   const actual = analysis.pages.map((p: Row) => Number(p.page_number)).sort((a: number, b: number) => a - b);
   if (JSON.stringify(actual) !== JSON.stringify([...pages].sort((a, b) => a - b))) {
     throw new Error("La extracción no acredita todas las páginas del bloque");
   }
-  if (analysis.pages.some((p: Row) => p.readable !== true)) {
+  const unreadable = analysis.pages.filter((p: Row) => p.readable !== true).map((p: Row) => Number(p.page_number));
+  if (unreadable.length && !options.allowUnreadable) {
     throw new Error("Hay páginas ilegibles. Se requiere un archivo legible o revisión documental");
+  }
+  if (unreadable.length) {
+    const readable = new Set(pages.filter((page) => !unreadable.includes(page)));
+    analysis.facts = (analysis.facts || []).filter((field: Row) => readable.has(Number(field.page_number)));
+    analysis.price_references = (analysis.price_references || []).filter((field: Row) => readable.has(Number(field.page_number)));
+    analysis.warnings = [...new Set([
+      ...(analysis.warnings || []),
+      `No fue posible leer completamente las páginas ${unreadable.join(", ")}; sus datos se excluyeron del análisis.`,
+    ])];
   }
   for (const field of [...(analysis.facts || []), ...(analysis.price_references || [])]) {
     if (!pages.includes(Number(field.page_number)) || !String(field.evidence || "").trim()) {

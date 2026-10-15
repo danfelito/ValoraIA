@@ -164,7 +164,10 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
     const analysis = JSON.parse(outputText(raw));
     if (!Array.isArray(analysis.facts) || !Array.isArray(analysis.price_references)) throw new Error("Extracción documental incompleta");
     if (source.source_type === "url" && !consultedUrls(raw).includes(canonicalUrl(source.source_url)!)) throw new Error("La búsqueda no acredita la lectura del enlace solicitado");
-    validatePageCoverage(analysis, pageNumbers);
+    // Una página aislada ilegible de una guía técnica no debe bloquear todo el
+    // expediente. Sus datos se excluyen y la advertencia queda en el informe.
+    // Los documentos aportados por el cliente conservan la validación estricta.
+    validatePageCoverage(analysis, pageNumbers, { allowUnreadable: source.kind === "knowledge" });
     if (source.kind === "knowledge") analysis.facts.forEach((f: Row) => f.scope = "reference");
     cached.chunks.push({ start, end: pageNumbers.at(-1), analysis });
     cached.facts = cached.chunks.flatMap((c: Row) => c.analysis.facts);

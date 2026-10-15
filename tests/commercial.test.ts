@@ -34,6 +34,15 @@ test("exige cobertura de todas las páginas y evidencia localizada",()=>{
   assert.throws(()=>validatePageCoverage({pages:[{page_number:1,readable:false}],facts:[],price_references:[]},[1]),/ilegibles/);
   assert.throws(()=>validatePageCoverage({pages:[{page_number:1,readable:true}],facts:[{page_number:4,evidence:"dato"}],price_references:[]},[1]),/sin evidencia/);
 });
+test("continúa una guía técnica con páginas ilegibles sin usar sus datos",()=>{
+  const analysis={pages:[{page_number:1,readable:true},{page_number:2,readable:false}],warnings:[],
+    facts:[{page_number:1,evidence:"dato válido"},{page_number:2,evidence:"dato dudoso"}],
+    price_references:[{page_number:2,evidence:"precio dudoso"}]};
+  validatePageCoverage(analysis,[1,2],{allowUnreadable:true});
+  assert.equal(analysis.facts.length,1);
+  assert.equal(analysis.price_references.length,0);
+  assert.match(analysis.warnings[0],/páginas 2/);
+});
 test("excluye renta, propia propiedad, otra ciudad, superficie incompatible y URL sin fuente",()=>{
   const inputs=[comparable(1),comparable(2),comparable(3),comparable(4,{operation_type:"rent"}),comparable(5,{municipality:"Alvarado"}),comparable(6,{url:"https://example.com/unknown"}),comparable(7,{is_subject:true}),comparable(8,{built_area_m2:null})];
   const selected=selectComparables(subject,inputs,urls,"2026-10-07");

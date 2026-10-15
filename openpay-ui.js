@@ -89,8 +89,7 @@
   function statusView() {
     sessionStorage.removeItem('valoraia_pending_commercial_request');
     sessionStorage.removeItem('valoraia_pending_commercial_test');
-    root.innerHTML = `<section class="selected-service commercial-selected"><div><span class="badge">Opinión de valor comercial</span><h1>Seguimiento de tu documento</h1><p>El PDF se genera únicamente después de que Openpay confirma el pago.</p></div></section><section class="card payment-status-card"><div class="status-icon">✓</div><h2>Estamos verificando tu pago</h2><p class="muted">Después analizaremos los comparables, generaremos el PDF y lo enviaremos al correo registrado.</p><div id="payment-progress" class="progress-list"><div class="progress-item active">1. Confirmación de pago</div><div class="progress-item">2. Análisis y comparables</div><div class="progress-item">3. Generación del PDF</div><div class="progress-item">4. Envío por correo</div></div><div id="status-box"><div class="status">Consultando estado…</div></div><div class="actions"><a class="btn secondary" href="index.html">Volver al inicio</a></div></section>`;
-    poll(0);
+    root.innerHTML = `<section class="selected-service commercial-selected"><div><span class="badge">Opinión de valor comercial</span><h1>Seguimiento de tu documento</h1><p>El PDF se genera únicamente después de que Openpay confirma el pago.</p></div></section><section class="card payment-status-card"><div class="status-icon">✓</div><h2>Estamos verificando tu pago</h2><p class="muted">Después analizaremos los comparables, generaremos el PDF y lo enviaremos al correo registrado.</p><div id="payment-progress" class="progress-list"><div class="progress-item active">1. Confirmación de pago</div><div class="progress-item">2. Análisis y comparables</div><div class="progress-item">3. Generación del PDF</div><div class="progress-item">4. Envío por correo</div></div><div id="status-box"><div class="status">Preparando el seguimiento…</div></div><div class="actions"><a class="btn primary" href="solicitud.html?id=${encodeURIComponent(returnedRequest)}">Abrir mi expediente</a><a class="btn secondary" href="cuenta.html">Mis solicitudes</a><a class="btn secondary" href="index.html">Volver al inicio</a></div></section>`;
   }
 
   async function poll(attempt) {
@@ -102,13 +101,15 @@
       items.forEach(x => x.classList.remove('active','done'));
       if (state.payment_status === 'paid') items[0].classList.add('done'); else items[0].classList.add('active');
       if (['queued','generating'].includes(state.document_status)) {
-        items[1].classList.add('done'); items[2].classList.add('active'); box.innerHTML = note('Pago confirmado. Estamos preparando tu opinión de valor comercial.');
+        items[1].classList.add('done'); items[2].classList.add('active');
+        const progress = state.total_pages ? ` Avance documental: ${Number(state.completed_pages || 0)} de ${Number(state.total_pages)} páginas${state.source_title ? ` · ${esc(state.source_title)}` : ''}.` : '';
+        box.innerHTML = note('Pago confirmado. Estamos preparando tu opinión de valor comercial.' + progress);
       } else if (state.document_status === 'ready') {
         items[0].classList.add('done'); items[1].classList.add('done'); items[2].classList.add('done'); items[3].classList.add(state.document_emailed_at ? 'done' : 'active');
         box.innerHTML = `<div class="status ok"><strong>Tu documento está listo.</strong><br>${state.document_emailed_at ? 'También fue enviado al correo registrado.' : 'Puedes descargarlo ahora. El envío por correo requiere que el remitente del sistema esté configurado.'}</div>${state.download_url ? `<a class="btn primary download-button" href="${esc(state.download_url)}">Descargar PDF</a>` : ''}${state.invoice_requested ? `<div class="invoice-result">Factura: ${esc(state.invoice_status === 'ready' ? 'emitida' : 'solicitada y pendiente de procesamiento fiscal')}${state.invoice_pdf_url ? ` · <a href="${esc(state.invoice_pdf_url)}">PDF</a>` : ''}${state.invoice_xml_url ? ` · <a href="${esc(state.invoice_xml_url)}">XML</a>` : ''}</div>` : ''}`;
         return;
       } else if (state.document_status === 'needs_review') {
-        items[0].classList.add('done'); box.innerHTML = note('El pago fue confirmado, pero la información requiere revisión antes de emitir una cifra confiable. El expediente quedó en seguimiento y no se generará un valor inventado.'); return;
+        items[0].classList.add('done'); box.innerHTML = note(`El pago fue confirmado, pero la información requiere revisión antes de emitir una cifra confiable. ${state.review_reason || 'El expediente quedó en seguimiento.'}`); return;
       } else if (['failed','cancelled'].includes(state.payment_status)) {
         box.innerHTML = note(state.payment_error || 'El pago no fue aprobado.', true); return;
       } else box.innerHTML = note('Pago pendiente de confirmación. Puedes mantener esta página abierta o regresar después con el mismo enlace.');
@@ -117,9 +118,10 @@
   }
 
   if (returnedRequest && isCommercial) {
+    statusView();
     const timer = setInterval(async () => {
       const { data } = await db.auth.getSession();
-      if (data.session) { clearInterval(timer); statusView(); }
+      if (data.session) { clearInterval(timer); poll(0); }
     }, 250);
   } else {
     const observer = new MutationObserver(enhance);

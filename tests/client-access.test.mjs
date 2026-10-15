@@ -23,3 +23,12 @@ test("aplica la identidad de Círculo y conserva el regreso al portal", async ()
   assert.match(html, /https:\/\/circulointernacionalveracruz\.org\//);
   assert.match(html, /ValoraIA · Círculo Internacional/);
 });
+
+test("muestra de inmediato el seguimiento y el acceso al expediente", async () => {
+  const source = await read("openpay-ui.js");
+  assert.match(source, /statusView\(\);\s*const timer/);
+  assert.match(source, /solicitud\.html\?id=/);
+  assert.match(source, /Mis solicitudes/);
+  assert.match(source, /Avance documental/);
+  assert.match(source, /state\.review_reason/);
+});
