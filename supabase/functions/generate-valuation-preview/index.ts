@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.110.8";
 import { check } from "../_shared/commercial-evidence.ts";
 import { startReport, inputSnapshot } from "../_shared/report-pipeline.ts";
+import { VALUATION_MODEL } from "../_shared/llm-config.ts";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json", "Cache-Control": "no-store" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: cors });
 Deno.serve(async (req: Request) => {
@@ -52,7 +53,7 @@ Deno.serve(async (req: Request) => {
         stalled: old?.status === "generating" && Date.now() - Date.parse(old?.report_data?.pipeline?.heartbeat || "") > 240000 });
     }
     const result = await startReport(admin, request, body, { url, secret, apiKey: Deno.env.get("OPENAI_API_KEY"),
-      model: Deno.env.get("OPENAI_DOCUMENT_MODEL") || "gpt-5", endpoint: "generate-valuation-preview", preview: true,
+      model: VALUATION_MODEL, endpoint: "generate-valuation-preview", preview: true,
       userId: userId || old?.created_by || caseRow.created_by }, isService);
     return json(result.body, result.status);
   } catch (error) { return json({ error: error instanceof Error ? error.message : "Error inesperado" }, 500); }

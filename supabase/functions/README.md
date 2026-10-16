@@ -24,8 +24,14 @@ Las funciones de producción ya están desplegadas en el proyecto `wctwkhixmmluc
 
 ```text
 OPENAI_API_KEY
-OPENAI_DOCUMENT_MODEL=gpt-5
 ```
+
+El perfil activo de IA se define en `_shared/llm-config.ts`: `gpt-6-luna`
+con `reasoning.effort=high`. Se aplica a documentos, repositorio, revisión de
+ficha e investigación de mercado. Las variables antiguas `OPENAI_DOCUMENT_MODEL`
+y `OPENAI_COMMERCIAL_MODEL` ya no seleccionan el modelo; sus valores remotos
+se conservan. Las lecturas previas se reutilizan y los bloques nuevos registran
+el modelo y esfuerzo utilizados, sin reiniciar el catálogo.
 
 Las funciones usan además las variables administradas por Supabase:
 

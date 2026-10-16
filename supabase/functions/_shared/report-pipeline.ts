@@ -4,6 +4,7 @@ import { check, loadSources, processSourceStep, requestAI, outputText, consulted
 import { inputSnapshot } from "./report-inputs.ts";
 export { inputSnapshot } from "./report-inputs.ts";
 import { commercialPdf } from "./commercial-pdf.ts";
+import { VALUATION_MODEL } from "./llm-config.ts";
 
 function table(config: Row) { return config.preview ? "valuation_report_previews" : "commercial_reports"; }
 function key(config: Row) { return config.preview ? "case_id" : "request_id"; }
@@ -40,7 +41,7 @@ async function searchMarket(subject: Row, stored: Row[], apiKey: string): Promis
     "price_evidence y area_evidence: paráfrasis breves y fieles del dato leído, menos de 15 palabras por fragmento.",
     "Revisa también estas referencias si son pertinentes: " + stored.map(c => c.source_url).filter(Boolean).join(", "),
   ].join("\n");
-  const raw = await requestAI({ model: Deno.env.get("OPENAI_COMMERCIAL_MODEL") || "gpt-5",
+  const raw = await requestAI({ model: VALUATION_MODEL,
     tools: [{ type: "web_search", external_web_access: true, user_location: { type: "approximate", country: "MX", city: subject.municipality, region: subject.region } }],
     include: ["web_search_call.action.sources"], input: prompt, text: { format: { type: "json_object" } } }, apiKey);
   const parsed = JSON.parse(outputText(raw));

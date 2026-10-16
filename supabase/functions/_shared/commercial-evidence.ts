@@ -3,6 +3,7 @@ export { check, digest, loadSources } from "./report-inputs.ts";
 import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import { PIPELINE_VERSION, canonicalUrl, validatePageCoverage, normalizeBlockPages } from "./commercial-core.ts";
 import type { Row } from "./commercial-core.ts";
+import { VALUATION_REASONING_EFFORT } from "./llm-config.ts";
 
 export function outputText(raw: Row): string {
   const parts = (raw.output || []).flatMap((item: Row) => item.content || [])
@@ -43,7 +44,7 @@ export async function requestAI(input: Row, key: string): Promise<Row> {
   if (!key) throw new Error("Falta configurar la API de análisis documental");
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
-    body: JSON.stringify({ reasoning: { effort: "low" }, max_output_tokens: 16000, ...input }),
+    body: JSON.stringify({ max_output_tokens: 16000, ...input, reasoning: { effort: VALUATION_REASONING_EFFORT } }),
     signal: AbortSignal.timeout(110000),
   });
   const result = await response.json();
@@ -189,7 +190,8 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
     normalizeBlockPages(analysis, pageNumbers, originalStart);
     validatePageCoverage(analysis, pageNumbers, { allowUnreadable: source.kind === "knowledge" });
     if (source.kind === "knowledge") analysis.facts.forEach((f: Row) => f.scope = "reference");
-    cached.chunks.push({ start, end: pageNumbers.at(-1), analysis });
+    cached.chunks.push({ start, end: pageNumbers.at(-1), analysis,
+      model: raw.model || config.model, reasoning_effort: VALUATION_REASONING_EFFORT });
     cached.facts = cached.chunks.flatMap((c: Row) => c.analysis.facts);
     cached.price_references = cached.chunks.flatMap((c: Row) => c.analysis.price_references);
     cached.valuation_guidance = [...new Set(cached.chunks.flatMap((c: Row) => c.analysis.valuation_guidance || []))];

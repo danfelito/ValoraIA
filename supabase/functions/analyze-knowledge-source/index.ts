@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.110.8";
 import { check, processSourceStep, background, validEvidence } from "../_shared/commercial-evidence.ts";
+import { VALUATION_MODEL } from "../_shared/llm-config.ts";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: cors });
 Deno.serve(async (req: Request) => {
@@ -29,7 +30,7 @@ Deno.serve(async (req: Request) => {
           const evidence = candidate.analysis?.commercial_evidence;
           if (await validEvidence(evidence, source.organization_id, secret)) prior.push({ id: candidate.id, kind: "knowledge", evidence });
         }
-        const result = await processSourceStep(admin, { ...source, kind: "knowledge", bucket: "valuation-knowledge" }, { secret, apiKey: Deno.env.get("OPENAI_API_KEY"), model: Deno.env.get("OPENAI_DOCUMENT_MODEL") || "gpt-5" }, prior);
+        const result = await processSourceStep(admin, { ...source, kind: "knowledge", bucket: "valuation-knowledge" }, { secret, apiKey: Deno.env.get("OPENAI_API_KEY"), model: VALUATION_MODEL }, prior);
         if (!result.evidence.complete) {
           const response = await fetch(url + "/functions/v1/analyze-knowledge-source", {
             method: "POST", headers: { Authorization: "Bearer " + secret, "Content-Type": "application/json" },

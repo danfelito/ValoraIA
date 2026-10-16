@@ -228,6 +228,8 @@ test("flujo integrado: documentos, consulta web, PDF y descarga sin mezclar cost
     if(String(url).includes("/functions/v1/generate-commercial-report"))return handler(new Request(String(url),options));
     if(String(url).includes("resend.com")){mails++;return Response.json({id:"unexpected-mail"});}
     const body=JSON.parse(options.body);
+    assert.equal(body.model,"gpt-6-luna");
+    assert.equal(body.reasoning.effort,"high");
     if(typeof body.input==="string"&&body.input.startsWith("REVISIÓN DE FICHA:"))return Response.json({status:"completed",output_text:JSON.stringify({observations:["Datos simulados contrastados con la ficha"],missing_information:["Visita física pendiente"],documentary_contrasts:[],declared_features:[]})});
     if(body.tools?.[0]?.type==="web_search"){
       searches++;return Response.json({id:"response-test",status:"completed",output_text:JSON.stringify({comparables:[1,2,3].map(i=>comparable(i))}),output:[{type:"web_search_call",action:{sources:urls.map(url=>({url}))}}]});

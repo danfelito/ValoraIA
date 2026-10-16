@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.110.8";
+import { VALUATION_MODEL, VALUATION_REASONING_EFFORT } from "../_shared/llm-config.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -128,7 +129,8 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: Deno.env.get("OPENAI_DOCUMENT_MODEL") || "gpt-5",
+        model: VALUATION_MODEL,
+        reasoning: { effort: VALUATION_REASONING_EFFORT },
         input: [{
           role: "user",
           content: [{ type: "input_text", text: prompt }, filePart],
@@ -161,7 +163,7 @@ Deno.serve(async (req: Request) => {
       summary: result.summary || null,
       warnings: Array.isArray(result.warnings) ? result.warnings : [],
       provider: "openai",
-      model: raw.model || "gpt-5",
+      model: raw.model || VALUATION_MODEL,
       processed_at: new Date().toISOString(),
     }, { onConflict: "document_id" });
 
@@ -209,7 +211,7 @@ Deno.serve(async (req: Request) => {
             : [],
           is_machine_generated: true,
           provider: "openai",
-          model: raw.model || "gpt-5",
+          model: raw.model || VALUATION_MODEL,
         })),
       );
     }
@@ -228,7 +230,7 @@ Deno.serve(async (req: Request) => {
       .update({
         status: "completed",
         provider: "openai",
-        model: raw.model || "gpt-5",
+        model: raw.model || VALUATION_MODEL,
         usage: raw.usage || {},
         completed_at: new Date().toISOString(),
       })
