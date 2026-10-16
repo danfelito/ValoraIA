@@ -6,6 +6,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import { numberValue, resolveSubject, selectComparables, marketStatistics, validatePageCoverage, normalizeBlockPages, contextualReferences, documentCandidates } from "../supabase/functions/_shared/commercial-core.ts";
 import { processSourceStep, validEvidence } from "../supabase/functions/_shared/commercial-evidence.ts";
+import { verifyServiceCredential } from "../supabase/functions/_shared/service-auth.ts";
 import type { Row } from "../supabase/functions/_shared/commercial-core.ts";
 
 const property = {address_line:"Ejemplo 99",land_area_m2:120,built_area_m2:100,bedrooms:2,bathrooms:2,parking_spaces:1,construction_year:2020,conservation_state:"Bueno"};
@@ -131,6 +132,41 @@ async function inputPdf(pages:number) {
   return pdf.save();
 }
 const config={secret:"test-secret",apiKey:"test-key",model:"test-model"};
+test("verifica claves de servicio con Auth del propio proyecto y rechaza falsificaciones y redirecciones",async()=>{
+  const original=globalThis.fetch;let calls=0;
+  globalThis.fetch=async(url:any,options:any)=>{
+    calls++;assert.equal(String(url),"https://project.example.com/auth/v1/admin/users?page=1&per_page=1");
+    assert.equal(options.redirect,"error");assert.equal(options.method,"GET");
+    assert.equal(options.headers.apikey,options.headers.Authorization.slice(7));
+    if(options.headers.Authorization==="Bearer verified-service")return Response.json({users:[]});
+    if(options.headers.Authorization==="Bearer network-failure")throw new Error("No disponible");
+    return Response.json({error:"No admin"},{status:403});
+  };
+  try{
+    assert.equal(await verifyServiceCredential("https://project.example.com",""),false);assert.equal(calls,0);
+    assert.equal(await verifyServiceCredential("https://project.example.com","Bearer forged-service-role"),false);
+    assert.equal(await verifyServiceCredential("https://project.example.com","Bearer public-anon"),false);
+    assert.equal(await verifyServiceCredential("https://project.example.com","Bearer network-failure"),false);
+    assert.equal(await verifyServiceCredential("https://project.example.com","Bearer verified-service"),true);
+  }finally{globalThis.fetch=original;}
+});
+
+test("la reanudación alternativa exige servicio verificado antes de leer fuentes",async()=>{
+  const db=fakeDb({knowledge_sources:[{id:"archived-source",status:"archived"}]},new Map());
+  db.auth.getUser=async()=>({data:{user:null},error:{message:"No user session"}} as any);
+  let reads=0;const originalFrom=db.from.bind(db);db.from=(name:string)=>{reads++;return originalFrom(name);};
+  (globalThis as any).__fakeDB=db;
+  const original=globalThis.fetch;let handler:any;
+  (globalThis as any).Deno={env:{get:(n:string)=>({SUPABASE_URL:"https://project.example.com",SUPABASE_SERVICE_ROLE_KEY:"test-secret",SUPABASE_ANON_KEY:"test-anon"} as Row)[n]},serve:(fn:any)=>handler=fn};
+  globalThis.fetch=async(_url:any,options:any)=>Response.json({}, {status:options.headers.Authorization==="Bearer verified-service"?200:403});
+  try{
+    await import("../supabase/functions/analyze-knowledge-source/index.ts");
+    const req=(token:string)=>new Request("https://project.example.com/analyze",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({source_id:"archived-source"})});
+    assert.equal((await handler(req("forged-service-role"))).status,401);assert.equal(reads,0);
+    assert.equal((await handler(req("verified-service"))).status,409);assert.equal(reads,1);
+  }finally{globalThis.fetch=original;delete (globalThis as any).Deno;}
+});
+
 function extraction(prompt:string,cost=false):Row {
   const list=prompt.match(/Páginas ORIGINALES[^:]*:\s*([^.]*)\./)![1].split(",").map(Number);
   return {summary:"Documento simulado de prueba",warnings:[],valuation_guidance:[],

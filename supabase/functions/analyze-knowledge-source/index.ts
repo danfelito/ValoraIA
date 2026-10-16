@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.110.8";
 import { check, processSourceStep, background, validEvidence } from "../_shared/commercial-evidence.ts";
 import { VALUATION_MODEL } from "../_shared/llm-config.ts";
+import { verifyServiceCredential } from "../_shared/service-auth.ts";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: cors });
 Deno.serve(async (req: Request) => {
@@ -18,7 +19,10 @@ Deno.serve(async (req: Request) => {
     if (auth !== "Bearer " + secret) {
       client = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } } });
       const user = await client.auth.getUser();
-      if (user.error || !user.data.user) return json({ error: "Sesión inválida" }, 401);
+      if (user.error || !user.data.user) {
+        if (!(await verifyServiceCredential(url, auth))) return json({ error: "Sesión inválida" }, 401);
+        client = admin;
+      }
     }
     const source = check(await client.from("knowledge_sources").select("*").eq("id", sourceId).single());
     if (source.status === "archived") return json({ error: "La fuente está archivada" }, 409);
