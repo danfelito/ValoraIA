@@ -227,7 +227,12 @@ test("la vista previa exige rol y no cobra, envía correos ni altera el avalúo 
     assert.equal((await handler(req({case_id:"case-test"}))).status,403);
     rows.organization_members[0].role="owner";
     assert.equal((await handler(req({case_id:"case-test"}))).status,403);
+    rows.organization_members[0].role="admin";
+    assert.equal((await handler(req({case_id:"case-test"}))).status,403);
     rows.organization_members[0].role="appraiser";
+    (globalThis as any).__fakeDB.rpc=async()=>({data:false,error:null});
+    assert.equal((await handler(req({case_id:"case-test"}))).status,403);
+    (globalThis as any).__fakeDB.rpc=async()=>({data:true,error:null});
     assert.equal((await handler(req({case_id:"case-test"}))).status,202);
     for(let i=0;i<jobs.length;i++)await jobs[i];
     const preview=rows.valuation_report_previews[0];assert.equal(preview.status,"generated");
@@ -292,4 +297,19 @@ test('bloquea el pago con ficha incompleta y exige la superficie correspondiente
   assert.equal(commercialIntakeIssues({...base,property_type:'casa',land_area_m2:120}).length,1);
   assert.equal(commercialIntakeIssues({...base,property_type:'casa',built_area_m2:100}).length,0);
   assert.equal(commercialIntakeIssues({...base,property_type:'terreno',land_area_m2:120}).length,0);
+});
+test('la pasarela rechaza ficha incompleta sin llamar a Openpay ni cambiar el pago',async()=>{
+  const row={...structuredClone(request),payment_status:'pending',intake_data:{region:'Veracruz',municipality:'Veracruz'}};
+  const rows={service_requests:[row],properties:[{case_id:'case-test',address_line:'Ejemplo 99',land_area_m2:120,built_area_m2:null}]};
+  (globalThis as any).__fakeDB=fakeDb(rows,new Map());
+  const original=globalThis.fetch;let handler:any,calls=0;
+  (globalThis as any).Deno={env:{get:(n:string)=>({SUPABASE_URL:'https://project.example.com',SUPABASE_SERVICE_ROLE_KEY:'test-secret',SUPABASE_ANON_KEY:'test-anon'} as Row)[n]},serve:(fn:any)=>handler=fn};
+  globalThis.fetch=async()=>{calls++;throw new Error('La ficha incompleta no debe llegar a Openpay');};
+  try{
+    await import('../supabase/functions/openpay-create-checkout/index.ts');
+    const before=JSON.stringify(rows);
+    const response=await handler(new Request('https://project.example.com/checkout',{method:'POST',headers:{Authorization:'Bearer test-user','Content-Type':'application/json'},body:JSON.stringify({request_id:'request-test'})}));
+    assert.equal(response.status,409);assert.match((await response.json()).error,/antes de pagar/);
+    assert.equal(calls,0);assert.equal(JSON.stringify(rows),before);
+  }finally{globalThis.fetch=original;delete (globalThis as any).Deno;}
 });
