@@ -102,7 +102,7 @@
       if (state.payment_status === 'paid') items[0].classList.add('done'); else items[0].classList.add('active');
       if (['queued','generating'].includes(state.document_status)) {
         items[1].classList.add('done'); items[2].classList.add('active');
-        const progress = state.total_pages ? ` Avance documental: ${Number(state.completed_pages || 0)} de ${Number(state.total_pages)} páginas${state.source_title ? ` · ${esc(state.source_title)}` : ''}.` : '';
+        const progress = state.total_pages ? ` Avance documental: ${Number(state.completed_pages || 0)} de ${Number(state.total_pages)} páginas${state.source_title ? ` · ${state.source_title}` : ''}.` : '';
         box.innerHTML = note('Pago confirmado. Estamos preparando tu opinión de valor comercial.' + progress);
       } else if (state.document_status === 'ready') {
         items[0].classList.add('done'); items[1].classList.add('done'); items[2].classList.add('done'); items[3].classList.add(state.document_emailed_at ? 'done' : 'active');
@@ -121,7 +121,7 @@
     statusView();
     const timer = setInterval(async () => {
       const { data } = await db.auth.getSession();
-      if (data.session) { clearInterval(timer); poll(0); }
+      if (data.session) { clearInterval(timer); statusView(); poll(0); }
     }, 250);
   } else {
     const observer = new MutationObserver(enhance);
