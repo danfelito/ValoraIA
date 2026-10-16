@@ -143,6 +143,9 @@
 
   function portal() {
     document.getElementById('logout').classList.remove('hidden');
+    // Al volver de Openpay, openpay-ui controla el seguimiento. Los eventos
+    // de sesión posteriores no deben reemplazarlo por una solicitud nueva.
+    if (service === 'commercial' && new URLSearchParams(location.search).get('solicitud')) return;
     const defaultName = quickProfile?.name || session.user.user_metadata?.full_name || '';
     const defaultEmail = quickProfile?.email || session.user.user_metadata?.contact_email || session.user.email || '';
 
