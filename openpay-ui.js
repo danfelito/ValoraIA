@@ -43,7 +43,16 @@
     button.disabled = true;
     status.innerHTML = '<div class="status">Preparando tu expediente y la liga segura de pago…</div>';
     try {
+      const land = ['terreno','rancho'].includes(payload.property_type);
+      const area = Number(payload[land ? 'land_area_m2' : 'built_area_m2']);
+      if (!payload.region?.trim() || !payload.municipality?.trim() || !Number.isFinite(area) || area <= 0) {
+        throw new Error('Antes de pagar, completa estado, municipio y la superficie '+(land?'de terreno':'construida')+' mayor a cero.');
+      }
       let requestId = sessionStorage.getItem(pendingKey);
+      if (requestId) {
+        const updated = await db.rpc('update_client_property', {p_request_id:requestId,p_fields:payload});
+        if (updated.error) throw updated.error;
+      }
       if (!requestId) {
         const saved = await db.rpc('submit_valuation_request', { payload });
         if (saved.error) throw saved.error;
@@ -55,6 +64,7 @@
         const detail = await checkout.error.context?.json?.().catch(() => null);
         throw new Error(detail?.error || checkout.error.message);
       }
+      if (checkout.data?.status === 'paid') { location.assign(`servicios.html?tipo=comercial&pago=regreso&solicitud=${encodeURIComponent(requestId)}`); return; }
       if (!checkout.data?.checkout_url) throw new Error(checkout.data?.error || 'No se recibió la liga de pago.');
       location.assign(checkout.data.checkout_url);
     } catch (error) {

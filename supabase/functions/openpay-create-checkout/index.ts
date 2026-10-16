@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { commercialIntakeIssues } from '../_shared/intake-validation.ts';
 import { createClient } from "npm:@supabase/supabase-js@2.110.8";
 
 const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Content-Type":"application/json"};
@@ -35,6 +36,10 @@ Deno.serve(async(req:Request)=>{
   if(row.created_by!==user.id) return json({error:"Sin acceso a esta solicitud"},403);
   if(row.service_type!=="commercial") return json({error:"Esta solicitud no requiere pago comercial"},400);
   if(row.payment_status==="paid") return json({status:"paid",request_id:requestId});
+  const property=await admin.from('properties').select('address_line,land_area_m2,built_area_m2').eq('case_id',row.case_id).single();
+  if(property.error)return json({error:'No se pudo validar la ficha antes del pago'},409);
+  const missing=commercialIntakeIssues({...row.intake_data,...property.data,property_type:row.property_type});
+  if(missing.length)return json({error:'Completa antes de pagar: '+missing.join(', ')+'.'},409);
   const merchant=Deno.env.get("OPENPAY_MERCHANT_ID"),privateKey=Deno.env.get("OPENPAY_PRIVATE_KEY");
   if(!merchant||!privateKey) return json({error:"Openpay todavía no está configurado. Agrega OPENPAY_MERCHANT_ID y OPENPAY_PRIVATE_KEY en los secretos de Supabase."},503);
   const {data:settings}=await admin.from("app_settings").select("openpay_environment,commercial_price,currency_code").eq("organization_id",row.organization_id).single();

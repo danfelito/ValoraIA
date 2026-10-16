@@ -1,3 +1,4 @@
+import {commercialIntakeIssues} from "../supabase/functions/_shared/intake-validation.ts";
 import { duplicatePlan } from "../supabase/functions/_shared/repository-dedup.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -283,4 +284,12 @@ test("deduplica sólo contenido idéntico de la misma organización y conserva l
     {...source,id:'c',verified_hash:'hash2'}, {...source,id:'d',organization_id:'org-b',verified_hash:'hash1'},
     {...source,id:'e'}];
   const plan=duplicatePlan(rows);assert.equal(plan.length,1);assert.equal(plan[0].duplicate.id,'a');assert.equal(plan[0].keep.id,'b');
+});
+
+test('bloquea el pago con ficha incompleta y exige la superficie correspondiente',()=>{
+  assert.equal(commercialIntakeIssues({property_type:'casa'}).length,4);
+  const base={address_line:'Ejemplo 99',municipality:'Veracruz',region:'Veracruz'};
+  assert.equal(commercialIntakeIssues({...base,property_type:'casa',land_area_m2:120}).length,1);
+  assert.equal(commercialIntakeIssues({...base,property_type:'casa',built_area_m2:100}).length,0);
+  assert.equal(commercialIntakeIssues({...base,property_type:'terreno',land_area_m2:120}).length,0);
 });
