@@ -48,6 +48,23 @@ export function canonicalUrl(value: unknown): string | null {
   } catch { return null; }
 }
 
+export function normalizeBlockPages(analysis: Row, pages: number[], originalStart = 1) {
+  if (!Array.isArray(analysis.pages)) throw new Error("No se recibió evidencia por página");
+  const reported = analysis.pages.map((p: Row) => Number(p.page_number));
+  const same = (a: number[], b: number[]) => JSON.stringify([...a].sort((x,y)=>x-y)) === JSON.stringify([...b].sort((x,y)=>x-y));
+  const book = pages.map(p=>p + originalStart - 1), block = pages.map((_,i)=>i+1);
+  const numbering = same(reported,pages) ? pages : same(reported,book) ? book : same(reported,block) ? block : null;
+  if (!numbering) throw new Error("La extracción no acredita todas las páginas del bloque (solicitadas: " + pages.join(",") + "; devueltas: " + reported.join(",") + ")");
+  const mapping = new Map(numbering.map((n,i)=>[n,pages[i]]));
+  for (const item of [...analysis.pages, ...(analysis.facts || []), ...(analysis.price_references || [])]) {
+    const local = mapping.get(Number(item.page_number));
+    if (local === undefined) throw new Error("Se recibió un dato sin evidencia y página verificables");
+    item.reported_page_number = Number(item.page_number);
+    item.page_number = local;
+    item.original_page_number = local + originalStart - 1;
+  }
+}
+
 export function validatePageCoverage(analysis: Row, pages: number[], options: { allowUnreadable?: boolean } = {}) {
   if (!Array.isArray(analysis.pages)) throw new Error("No se recibió evidencia por página");
   const actual = analysis.pages.map((p: Row) => Number(p.page_number)).sort((a: number, b: number) => a - b);

@@ -1,7 +1,7 @@
 import { check, digest, stable } from "./report-inputs.ts";
 export { check, digest, loadSources } from "./report-inputs.ts";
 import { PDFDocument } from "npm:pdf-lib@1.17.1";
-import { PIPELINE_VERSION, canonicalUrl, validatePageCoverage } from "./commercial-core.ts";
+import { PIPELINE_VERSION, canonicalUrl, validatePageCoverage, normalizeBlockPages } from "./commercial-core.ts";
 import type { Row } from "./commercial-core.ts";
 
 export function outputText(raw: Row): string {
@@ -172,6 +172,15 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
     // Una página aislada ilegible de una guía técnica no debe bloquear todo el
     // expediente. Sus datos se excluyen y la advertencia queda en el informe.
     // Los documentos aportados por el cliente conservan la validación estricta.
+    const sourceBook = source.analysis?.source_document;
+    const partRange = source.kind === "knowledge" && String(source.file_name || "").match(/_paginas_(\d+)-(\d+)\.pdf$/i);
+    const namedStart = partRange ? Number(partRange[1]) : 1;
+    const namedEnd = partRange ? Number(partRange[2]) : pages;
+    const originalStart = sourceBook?.original_sha256 && Number.isInteger(sourceBook.original_start)
+      && sourceBook.original_start > 0 && sourceBook.original_end - sourceBook.original_start + 1 === pages
+      ? sourceBook.original_start : Number.isSafeInteger(namedStart) && namedStart > 0
+        && Number.isSafeInteger(namedEnd) && namedEnd - namedStart + 1 === pages ? namedStart : 1;
+    normalizeBlockPages(analysis, pageNumbers, originalStart);
     validatePageCoverage(analysis, pageNumbers, { allowUnreadable: source.kind === "knowledge" });
     if (source.kind === "knowledge") analysis.facts.forEach((f: Row) => f.scope = "reference");
     cached.chunks.push({ start, end: pageNumbers.at(-1), analysis });

@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { writeFile, mkdir } from "node:fs/promises";
 import { PDFDocument } from "npm:pdf-lib@1.17.1";
-import { numberValue, resolveSubject, selectComparables, marketStatistics, validatePageCoverage, contextualReferences, documentCandidates } from "../supabase/functions/_shared/commercial-core.ts";
+import { numberValue, resolveSubject, selectComparables, marketStatistics, validatePageCoverage, normalizeBlockPages, contextualReferences, documentCandidates } from "../supabase/functions/_shared/commercial-core.ts";
 import { processSourceStep, validEvidence } from "../supabase/functions/_shared/commercial-evidence.ts";
 import type { Row } from "../supabase/functions/_shared/commercial-core.ts";
 
@@ -36,6 +36,19 @@ test("exige cobertura de todas las páginas y evidencia localizada",()=>{
   assert.throws(()=>validatePageCoverage({pages:[{page_number:1,readable:false}],facts:[],price_references:[]},[1]),/ilegibles/);
   assert.throws(()=>validatePageCoverage({pages:[{page_number:1,readable:true}],facts:[{page_number:4,evidence:"dato"}],price_references:[]},[1]),/sin evidencia/);
 });
+test("conserva trazabilidad con numeración del libro o reinicio del bloque sin aceptar omisiones",()=>{
+  for(const reported of [[3,4],[217,218],[1,2]]){
+    const a={pages:reported.map(page_number=>({page_number,readable:true})),facts:[],price_references:[{page_number:reported[1],evidence:'Modelo y precio'}]};
+    normalizeBlockPages(a,[3,4],215);validatePageCoverage(a,[3,4]);
+    assert.deepEqual(a.pages.map(p=>p.page_number),[3,4]);
+    assert.equal((a.price_references[0] as Row).original_page_number,218);
+    assert.equal(a.price_references[0].page_number,4);
+  }
+  assert.throws(()=>normalizeBlockPages({pages:[{page_number:1}],facts:[],price_references:[]},[3,4],215),/todas las páginas/);
+  assert.throws(()=>normalizeBlockPages({pages:[{page_number:1},{page_number:1}],facts:[],price_references:[]},[3,4],215),/todas las páginas/);
+  assert.throws(()=>normalizeBlockPages({pages:[{page_number:1}],facts:[{page_number:99}],price_references:[]},[3],215),/sin evidencia/);
+});
+
 test("continúa una guía técnica con páginas ilegibles sin usar sus datos",()=>{
   const analysis={pages:[{page_number:1,readable:true},{page_number:2,readable:false}],warnings:[],
     facts:[{page_number:1,evidence:"dato válido"},{page_number:2,evidence:"dato dudoso"}],
@@ -171,6 +184,19 @@ test("reduce bloques densos sin aceptar respuestas truncadas ni omitir páginas"
     assert.deepEqual(e.chunks.flatMap((c:Row)=>c.analysis.pages.map((p:Row)=>p.page_number)),[1,2,3,4]);
     assert.equal(e.price_references.some((p:Row)=>p.price===999999999),false);
     assert.equal(e.block_retries.length,2);
+  }finally{globalThis.fetch=original;}
+});
+
+test("un catálogo dividido conserva páginas originales al procesar el archivo real",async()=>{
+  const source={id:"part",organization_id:"org-test",title:"Parte del catálogo",file_name:"BIMSA_2026_paginas_0215-0216.pdf",mime_type:"application/pdf",kind:"knowledge",bucket:"valuation-knowledge",storage_path:"org-test/part.pdf",analysis:{}};
+  const db=fakeDb({knowledge_sources:[source]},new Map([["valuation-knowledge/org-test/part.pdf",await inputPdf(2)]])),original=globalThis.fetch;
+  globalThis.fetch=async()=>Response.json({status:"completed",output_text:JSON.stringify({summary:"Prueba",warnings:[],valuation_guidance:[],facts:[],pages:[{page_number:215,readable:true},{page_number:216,readable:true}],price_references:[{page_number:216,evidence:"Modelo y costo de prueba"}]})});
+  try{
+    const {evidence}=await processSourceStep(db,source,config);
+    assert.equal(evidence.complete,true);assert.equal(evidence.completed_pages,2);
+    assert.equal(evidence.price_references[0].page_number,2);
+    assert.equal(evidence.price_references[0].original_page_number,216);
+    assert.equal(await validEvidence(evidence,"org-test","test-secret"),true);
   }finally{globalThis.fetch=original;}
 });
 
