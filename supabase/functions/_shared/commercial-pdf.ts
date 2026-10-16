@@ -5,8 +5,8 @@ const clean = (value: unknown) => String(value ?? "").replace(/[–—]/g, "-")
   .replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/[^\x20-\xFF\n]/g, " ");
 const money = (value: number, currency = "MXN") => new Intl.NumberFormat("es-MX", { style: "currency", currency, maximumFractionDigits: 0 }).format(value);
 const quantity = (value: unknown) => value === null || value === undefined || value === "" ? "No acreditado" : String(value);
-const green = rgb(0.06, 0.31, 0.24), ink = rgb(0.12, 0.22, 0.19), muted = rgb(0.40, 0.46, 0.44);
-const light = rgb(0.92, 0.97, 0.94), gold = rgb(0.72, 0.49, 0.15);
+const green = rgb(237/255, 28/255, 46/255), ink = rgb(0.1, 0.1, 0.1), muted = rgb(0.4, 0.4, 0.4);
+const light = rgb(0.96, 0.96, 0.96), gold = rgb(0.72, 0.49, 0.15);
 const labels: Row = { address_line: "Dirección", land_area_m2: "Superficie de terreno", built_area_m2: "Superficie construida", bedrooms: "Recámaras", bathrooms: "Baños", parking_spaces: "Estacionamientos", postal_code: "Código postal", floors: "Niveles", frontage_m: "Frente", depth_m: "Fondo", saleable_area_m2: "Superficie vendible", rentable_area_m2: "Superficie rentable", asking_price: "Precio solicitado", property_type: "Tipo de inmueble", municipality: "Municipio", region: "Estado", locality: "Colonia / localidad", purpose: "Finalidad", property_subtype: "Subtipo de inmueble", property_notes: "Descripción del cliente", construction_year: "Año de construcción", conservation_state: "Conservación", construction_quality: "Calidad constructiva", offer: "Oferta de venta", closed_sale: "Venta documentada", rent: "Renta", land_reference: "Referencia de suelo", construction_cost: "Costo de construcción", cadastral_value: "Valor catastral", historical_valuation: "Avalúo histórico", other: "Otra referencia", total: "Precio total", m2_built: "m2 de construcción", m2_land: "m2 de terreno", ha: "Hectárea" };
 const label = (value: string) => labels[value] || value;
 
@@ -40,7 +40,7 @@ export async function commercialPdf(data: Row): Promise<Uint8Array> {
   let page: any, y = 724;
   const newPage = (title = "") => {
     page = doc.addPage([612, 792]); y = 713;
-    page.drawRectangle({ x: 0, y: 742, width: 612, height: 50, color: green });
+    page.drawRectangle({ x: 0, y: 742, width: 612, height: 50, color: rgb(0.06,0.06,0.06) });
     page.drawText("ValoraIA", { x: 46, y: 760, size: 15, font: bold, color: rgb(1, 1, 1) });
     page.drawText(clean(data.folio), { x: 410, y: 763, size: 8, font: regular, color: rgb(0.85, 0.94, 0.9) });
     if (title) heading(title);
@@ -201,7 +201,7 @@ export async function commercialPdf(data: Row): Promise<Uint8Array> {
   });
   page.drawText("Superficie (m2)", { x: 260, y: bottom - 32, size: 9, font: regular, color: ink });
   y = bottom - 52;
-  text("Verde: referencias de mercado. S dorada: superficie del sujeto y opinión central. Eje vertical: millones de " + currency + ".", 9);
+  text("Rojo: referencias de mercado. S dorada: superficie del sujeto y opinión central. Eje vertical: millones de " + currency + ".", 9);
   if (s.asking_price) text("Precio solicitado frente a la opinión: " + money(s.asking_price, currency) + " vs. " + money(stats.estimated, currency) + ". Diferencia: " + ((s.asking_price / stats.estimated - 1) * 100).toFixed(1) + "%.", 10, true);
 
   newPage("4. Fuentes documentales y sondeo público");

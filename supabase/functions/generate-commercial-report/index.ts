@@ -26,7 +26,10 @@ Deno.serve(async (req: Request) => {
     if (request.valuation_cases?.organization_id !== request.organization_id) return json({error:"El expediente y la solicitud no pertenecen a la misma organización"},409);
     if (userId && userId !== request.created_by) {
       const member = check(await admin.from("organization_members").select("role").eq("organization_id", request.organization_id).eq("user_id", userId).eq("status", "active").maybeSingle());
-      if (!member || !["owner", "admin", "reviewer"].includes(member.role)) return json({ error: "Sin acceso a esta solicitud" }, 403);
+      if (!member || !["appraiser", "reviewer", "analyst"].includes(member.role)) return json({ error: "Sin acceso al contenido de esta solicitud" }, 403);
+      const scoped = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } } });
+      const allowed = await scoped.rpc('can_read_case_content', { p_case_id: request.case_id });
+      if (allowed.error || allowed.data !== true) return json({ error: "El expediente no está asignado a esta cuenta" }, 403);
     }
     if (request.service_type !== "commercial") return json({ error: "Esta solicitud sigue el flujo profesional con perito" }, 409);
     if (request.payment_status !== "paid") return json({ error: "Pago no confirmado" }, 402);

@@ -1,6 +1,16 @@
 (async () => {
   const target = document.getElementById('app');
   try {
+    const cfg=window.VALORAIA_CONFIG;
+    const access=window.supabase.createClient(cfg.supabaseUrl,cfg.supabasePublishableKey);
+    const verifiedUser=await access.auth.getUser();
+    if(verifiedUser.data.user){
+      const roles=await access.from('organization_members').select('role').eq('user_id',verifiedUser.data.user.id).eq('status','active');
+      if(roles.error)throw roles.error;
+      if(!(roles.data||[]).some(m=>['appraiser','reviewer','analyst'].includes(m.role))){
+        location.replace((roles.data||[]).some(m=>['owner','admin'].includes(m.role))?'operaciones.html':'cuenta.html');return;
+      }
+    }
     const parts = [
       'assets/app/app-01.b64','assets/app/app-02.b64',
       'assets/app/app-03a.b64','assets/app/app-03b.b64','assets/app/app-03c.b64',
@@ -76,6 +86,12 @@ async function resendConfirmation(){const input=document.querySelector('#auth-fo
     source = source.replace("db.auth.onAuthStateChange(async(_event,session)=>{", "db.auth.onAuthStateChange((_event,session)=>{setTimeout(async()=>{");
     source = source.replace("else resetData();render();});}", "else resetData();render();},0);});}");
     source = source.replace("S.user=data.session?.user||null;if(S.user)await loadWorkspace();", "const verified=await db.auth.getUser();S.user=verified.error?null:verified.data.user;if(S.user)await loadWorkspace();");
+    source=source.replace("S.memberships=members||[];","S.memberships=members||[];if(!S.memberships.some(m=>['appraiser','reviewer','analyst'].includes(m.role))){location.replace(S.memberships.some(m=>['owner','admin'].includes(m.role))?'operaciones.html':'cuenta.html');return;}");
+    source=source.replace("S.org=S.memberships[0]?.organizations||null;","S.org=S.memberships.find(m=>['appraiser','reviewer','analyst'].includes(m.role))?.organizations||null;");
+    source=source.replace(/<button data-view="organization"[\s\S]*?<\/button>/g,'');
+    source=source.replace('Casos persistentes protegidos por organización y RLS.','Expedientes asignados para revisión y trabajo técnico.');
+    source=source.replace("else if(S.view==='organization'){app.innerHTML=organization()}","else if(S.view==='organization'){app.innerHTML=dashboard()}");
+    source=source.replace('else if(!S.org){app.innerHTML=onboarding()}',`else if(!S.org){app.innerHTML='<section class="card"><h1>Acceso de perito pendiente</h1><p>Solicita a administración la vinculación de tu cuenta.</p><a href="cuenta.html">Mi cuenta</a></section>'}`);
     new Function(source)();
 
     const notice = localStorage.getItem('valoraia_auth_notice');

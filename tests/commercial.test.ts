@@ -1,3 +1,4 @@
+import { duplicatePlan } from "../supabase/functions/_shared/repository-dedup.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { writeFile, mkdir } from "node:fs/promises";
@@ -102,6 +103,7 @@ class Query {
 }
 function fakeDb(tables:Row,files:Map<string,Uint8Array>) {
   return {tables,auth:{getUser:async()=>({data:{user:{id:"user-test"}},error:null})},
+    rpc:async()=>({data:true,error:null}),
     from(table:string){return new Query(this,table);},
     storage:{from(bucket:string){return {
       download:async(path:string)=>({data:new Blob([files.get(bucket+"/"+path)!]),error:null}),
@@ -192,6 +194,7 @@ test("flujo integrado: documentos, consulta web, PDF y descarga sin mezclar cost
     const output=files.get("valuation-documents/"+report.pdf_storage_path)!;
     const pdf=await PDFDocument.load(output);assert.ok(pdf.getPageCount()>=6);
     await mkdir("tmp",{recursive:true});
+    await writeFile("tmp/ejemplo-informe-comercial.pdf",output);
     await writeFile("tmp/report-preview.json",JSON.stringify({...report.report_data,documents:[
       {id:"doc-intake",kind:"intake",title:"Plano de prueba.pdf",evidence:{page_count:2,completed_pages:2,facts:[{}],price_references:[]}},
       {id:"doc-knowledge",kind:"knowledge",title:"Costos simulados.pdf",category:"mercado",evidence:{page_count:1,completed_pages:1,facts:[],price_references:[{}]}},
@@ -222,6 +225,8 @@ test("la vista previa exige rol y no cobra, envía correos ni altera el avalúo 
     assert.equal((await handler(req({case_id:"case-test"},false))).status,401);
     assert.equal((await handler(req({case_id:"case-test"}))).status,403);
     rows.organization_members[0].role="owner";
+    assert.equal((await handler(req({case_id:"case-test"}))).status,403);
+    rows.organization_members[0].role="appraiser";
     assert.equal((await handler(req({case_id:"case-test"}))).status,202);
     for(let i=0;i<jobs.length;i++)await jobs[i];
     const preview=rows.valuation_report_previews[0];assert.equal(preview.status,"generated");
@@ -269,4 +274,13 @@ test("la consulta temporal de producción no procesa documentos ni permite gener
     rows.organization_members[0].role="assistant";
     assert.equal((await handler(req({case_id:"case-test",action:"status"}))).status,403);
   } finally {globalThis.fetch=original;delete (globalThis as any).Deno;}
+});
+
+test("deduplica sólo contenido idéntico de la misma organización y conserva la mejor lectura",()=>{
+  const source={organization_id:'org-a',source_type:'pdf',title:'Mismo nombre.pdf',created_at:'2026-01-01'};
+  const rows=[{...source,id:'a',verified_hash:'hash1',analysis:{}},
+    {...source,id:'b',verified_hash:'hash1',analysis:{commercial_evidence:{complete:true,completed_pages:20}}},
+    {...source,id:'c',verified_hash:'hash2'}, {...source,id:'d',organization_id:'org-b',verified_hash:'hash1'},
+    {...source,id:'e'}];
+  const plan=duplicatePlan(rows);assert.equal(plan.length,1);assert.equal(plan[0].duplicate.id,'a');assert.equal(plan[0].keep.id,'b');
 });

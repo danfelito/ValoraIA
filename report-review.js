@@ -9,6 +9,7 @@
   async function invoke(body){const r=await db.functions.invoke('generate-valuation-preview',{body});if(r.error)throw new Error(r.data?.error||r.error.message);if(r.data?.error)throw new Error(r.data.error);return r.data;}
   async function open(container,caseId){
     container.innerHTML='<section class="card"><h2>Informe y documentos del expediente</h2><div class="status">Consultando…</div></section>';
+    container.scrollIntoView({behavior:'smooth',block:'start'});
     let timer,live=true;const token=Symbol();container.__valoraiaReviewRun=token;
     const refresh=async()=>{
       if(!container.isConnected||!live||container.__valoraiaReviewRun!==token){clearTimeout(timer);return;}

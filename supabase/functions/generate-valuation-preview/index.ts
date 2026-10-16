@@ -25,7 +25,10 @@ Deno.serve(async (req: Request) => {
     const caseRow = check(await admin.from("valuation_cases").select("*").eq("id", caseId).single());
     if (!isService) {
       const member = check(await admin.from("organization_members").select("role").eq("organization_id", caseRow.organization_id).eq("user_id", userId).eq("status", "active").maybeSingle());
-      if (!member || !["owner", "admin", "appraiser", "reviewer", "analyst"].includes(member.role)) return json({ error: "Sin acceso a la revisión de este expediente" }, 403);
+      if (!member || !["appraiser", "reviewer", "analyst"].includes(member.role)) return json({ error: "Administración sólo consulta el seguimiento. La revisión técnica corresponde al perito autorizado" }, 403);
+      const scoped = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } } });
+      const allowed = await scoped.rpc('can_read_case_content', { p_case_id: caseId });
+      if (allowed.error || allowed.data !== true) return json({ error: "El expediente no está asignado a esta cuenta" }, 403);
     }
     const clientRequest = check(await admin.from("service_requests").select("*").eq("case_id", caseId).maybeSingle());
     const request = { ...(clientRequest || { id: caseId, internal: true, organization_id: caseRow.organization_id, case_id: caseId,
