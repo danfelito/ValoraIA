@@ -149,6 +149,43 @@ test("procesa todos los bloques, verifica firma y reutiliza extracción sin repe
   } finally {globalThis.fetch=original;}
 });
 
+test("reduce bloques densos sin aceptar respuestas truncadas ni omitir páginas",async()=>{
+  const files=new Map([["valuation-knowledge/org-test/dense.pdf",await inputPdf(4)]]);
+  const source={id:"dense",organization_id:"org-test",title:"Catálogo denso",file_name:"dense.pdf",mime_type:"application/pdf",kind:"knowledge",bucket:"valuation-knowledge",storage_path:"org-test/dense.pdf",analysis:{}};
+  const db=fakeDb({knowledge_sources:[source]},files),original=globalThis.fetch;
+  let calls=0;
+  globalThis.fetch=async(_url:any,options:any)=>{
+    calls++;
+    if(calls<=2)return Response.json({status:"incomplete",output_text:'{"price_references":[{"price":999999999}]}'});
+    return Response.json({status:"completed",output_text:JSON.stringify(extraction(JSON.parse(options.body).input[0].content[0].text,true))});
+  };
+  try{
+    const first=await processSourceStep(db,source,config);
+    assert.equal(first.evidence.page_limit,2);assert.equal(first.evidence.chunks.length,0);
+    const second=await processSourceStep(db,source,config);
+    assert.equal(second.evidence.page_limit,1);assert.equal(second.evidence.price_references.length,0);
+    assert.equal(await validEvidence(second.evidence,"org-test","test-secret"),true);
+    for(let i=0;i<4;i++)await processSourceStep(db,source,config);
+    const e=(source.analysis as Row).commercial_evidence;
+    assert.equal(e.complete,true);assert.equal(e.completed_pages,4);
+    assert.deepEqual(e.chunks.flatMap((c:Row)=>c.analysis.pages.map((p:Row)=>p.page_number)),[1,2,3,4]);
+    assert.equal(e.price_references.some((p:Row)=>p.price===999999999),false);
+    assert.equal(e.block_retries.length,2);
+  }finally{globalThis.fetch=original;}
+});
+
+test("una página incompleta sigue en error y no se acredita como leída",async()=>{
+  const source={id:"single",organization_id:"org-test",title:"Catálogo",file_name:"single.pdf",mime_type:"application/pdf",kind:"knowledge",bucket:"valuation-knowledge",storage_path:"org-test/single.pdf",analysis:{}};
+  const db=fakeDb({knowledge_sources:[source]},new Map([["valuation-knowledge/org-test/single.pdf",await inputPdf(1)]])),original=globalThis.fetch;
+  globalThis.fetch=async()=>Response.json({status:"incomplete",output_text:'{}'});
+  try{
+    await assert.rejects(processSourceStep(db,source,config),/no completó/);
+    assert.equal((source as Row).status,"error");
+    assert.equal((source.analysis as Row).commercial_evidence.complete,false);
+    assert.equal((source.analysis as Row).commercial_evidence.chunks.length,0);
+  }finally{globalThis.fetch=original;}
+});
+
 test("flujo integrado: documentos, consulta web, PDF y descarga sin mezclar costos",async()=>{
   const files=new Map<string,Uint8Array>([["valuation-intake/org-test/request-test/intake.pdf",await inputPdf(2)],["valuation-knowledge/org-test/cost.pdf",await inputPdf(1)]]);
   const rows:Row={

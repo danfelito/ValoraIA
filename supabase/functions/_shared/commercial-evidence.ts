@@ -37,6 +37,8 @@ export function assertSourcePath(source: Row) {
   }
 }
 
+class IncompleteAnalysisError extends Error {}
+
 export async function requestAI(input: Row, key: string): Promise<Row> {
   if (!key) throw new Error("Falta configurar la API de análisis documental");
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -46,7 +48,7 @@ export async function requestAI(input: Row, key: string): Promise<Row> {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error?.message || "No se pudo analizar la fuente");
-  if (result.status && result.status !== "completed") throw new Error("El proveedor no completó el análisis; no se omitirá información");
+  if (result.status && result.status !== "completed") throw new IncompleteAnalysisError("El proveedor no completó el análisis; no se omitirá información");
   if (!outputText(result)) throw new Error("La fuente no produjo una extracción utilizable");
   return result;
 }
@@ -131,7 +133,8 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
   const done = new Set<number>(cached.chunks.flatMap((chunk: Row) => chunk.analysis.pages.map((p: Row) => Number(p.page_number))));
   const start = Array.from({ length: pages }, (_, i) => i + 1).find((p) => !done.has(p));
   if (!start) throw new Error("El registro de páginas quedó inconsistente; se requiere reanálisis");
-  const pageNumbers = Array.from({ length: Math.min(4, pages - start + 1) }, (_, i) => start + i);
+  const pageLimit = Math.max(1, Math.min(4, Number(cached.page_limit) || 4));
+  const pageNumbers = Array.from({ length: Math.min(pageLimit, pages - start + 1) }, (_, i) => start + i);
   let part: Row;
   if (pdf) {
     const block = await PDFDocument.create();
@@ -182,6 +185,21 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
     await save(admin, source, cached, cached.complete ? "ready" : "processing");
     return { ...source, evidence: cached, reused: false };
   } catch (error) {
+    // Dense price tables may exceed the response budget for a multi-page block.
+    // Discard that response and retry fewer pages; never mark a truncated block
+    // as read or discard the remaining pages to make the analysis pass.
+    if (pageNumbers.length > 1 && (error instanceof IncompleteAnalysisError
+      || error instanceof SyntaxError || (error instanceof Error && error.name === "TimeoutError"))) {
+      cached.page_limit = Math.max(1, Math.floor(pageNumbers.length / 2));
+      cached.block_retries = [...(cached.block_retries || []), {
+        start, attempted_pages: pageNumbers.length, retry_pages: cached.page_limit,
+        reason: error instanceof Error ? error.message : "Respuesta incompleta", at: new Date().toISOString(),
+      }];
+      cached.processed_at = new Date().toISOString();
+      cached.signature = await sign(cached, config.secret);
+      await save(admin, source, cached, "processing");
+      return { ...source, evidence: cached, reused: false };
+    }
     cached.signature = await sign(cached, config.secret);
     await save(admin, source, cached, "error", error instanceof Error ? error.message : "Error");
     throw error;
