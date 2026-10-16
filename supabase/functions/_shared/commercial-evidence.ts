@@ -157,6 +157,7 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
     }),
     "En cada referencia omite las claves desconocidas o no aplicables en lugar de repetir campos null; conserva siempre tipo de operación, unidad, página, confianza y evidencia. Los datos ausentes siguen siendo desconocidos, nunca cero.",
     "No dupliques filas por repeticiones de la capa OCR o marcas de agua. Conserva todos los modelos y conceptos distintos con precio visible; no confundas un subtotal, porcentaje o número de página con un precio inmobiliario.",
+    "En tablas paramétricas devuelve UNA referencia por modelo constructivo: price es el precio unitario total de la fila. Conserva el desglose de esa misma fila en construction_model, direct_cost_m2, indirect_cost_m2, indirect_percent y total_cost_m2 cuando se publique. No crees tres referencias separadas para costo directo, indirectos y total del mismo modelo. No sumes ni agregues indirectos otra vez si ya están incluidos en el total. Si sólo se publica costo directo, identifica ese alcance y no inventes el total.",
     "Extrae TODOS los precios, rangos, modelos constructivos y datos relevantes visibles, con su fecha, unidad, finalidad, ubicación y página.",
     "Distingue ofertas de venta, cierres acreditados, rentas, valores fiscales, avalúos históricos, rangos de suelo y costos de construcción.",
     "No conviertas costos paramétricos ni rangos agregados de una guía en ventas comparables individuales. Conserva los rangos mínimo y máximo.",
