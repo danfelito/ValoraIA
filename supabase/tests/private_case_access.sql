@@ -7,6 +7,7 @@ do $$declare org_id uuid;actor uuid;private_case uuid;begin
     and not exists(select 1 from public.service_requests r where r.case_id=c.id) limit 1;
   if actor is null or private_case is null then raise exception 'Se requieren fixtures de propietario y expediente interno';end if;
   perform set_config('request.jwt.claim.sub',actor::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',actor,'is_anonymous',false,'amr',jsonb_build_array(jsonb_build_object('method','password')))::text,true);
   perform set_config('valoraia_test.org',org_id::text,true);
   perform set_config('valoraia_test.actor',actor::text,true);
   perform set_config('valoraia_test.case',private_case::text,true);

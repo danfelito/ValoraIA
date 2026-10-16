@@ -12,6 +12,8 @@ Deno.serve(async req=>{
     const client=createClient(url,Deno.env.get('SUPABASE_ANON_KEY')!,{global:{headers:{Authorization:auth}}});
     const user=await client.auth.getUser();if(user.error||!user.data.user)return json({error:'Sesión inválida'},401);
     const body=await req.json(),orgId=String(body.organization_id||'');
+    const gate=await client.rpc('admin_service_tracking',{p_organization_id:orgId});
+    if(gate.error)return json({error:'Ingresa con la contraseña de tu cuenta administradora'},403);
     const admin=createClient(url,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false}});
     const member=await admin.from('organization_members').select('role').eq('organization_id',orgId).eq('user_id',user.data.user.id).eq('status','active').maybeSingle();
     if(member.error||!['owner','admin'].includes(member.data?.role))return json({error:'Sin acceso'},403);
