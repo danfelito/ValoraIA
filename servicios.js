@@ -185,6 +185,7 @@
             <div class="field full"><label>Descripción y datos adicionales</label><textarea name="property_notes" placeholder="Servicios, acabados, antigüedad, situación legal, accesos, mejoras y ocupación."></textarea></div>
           </div>
 
+          ${service==='commercial'?'<section class="card"><h2>Documentos y fotografías del inmueble</h2><p>Adjunta la evidencia antes de continuar al pago. Puedes incluir planos, predial, escritura y fotografías. Si no aportas documentos, el informe señalará qué datos sólo fueron declarados.</p><input name="intake_files" type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp"><small>Hasta 40 MB por archivo; fotografías hasta 30 MB en conjunto.</small></section>':''}
           <div class="check"><input type="checkbox" name="privacy_accepted" required><label>Acepto el almacenamiento y uso de la información para atender esta solicitud. *</label></div>
           <div class="check"><input type="checkbox" name="marketing_consent"><label>Acepto recibir seguimiento posterior sobre servicios de valuación.</label></div>
           <button class="btn primary" id="send">Guardar expediente</button>

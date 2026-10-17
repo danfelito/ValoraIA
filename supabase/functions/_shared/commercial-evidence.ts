@@ -87,7 +87,7 @@ const extractionShape = {
   summary: "string", warnings: ["string"], valuation_guidance: ["string"],
   pages: [{ page_number: 1, readable: true, summary: "contenido o motivo de falta de datos" }],
   facts: [{ field_key: "address_line|land_area_m2|built_area_m2|bedrooms|bathrooms|parking_spaces|construction_year|conservation_state|construction_quality|floors|frontage_m|depth_m|saleable_area_m2|rentable_area_m2|postal_code",
-    scope: "subject|reference", value: "string|number|null", unit: "string|null", page_number: 1, confidence: 0.0, evidence: "texto que respalda el dato" }],
+    scope: "subject|component|reference", value: "string|number|null", unit: "string|null", page_number: 1, confidence: 0.0, evidence: "texto que respalda el dato" }],
   price_references: [{ title: "string", property_type: "casa|departamento|terreno|rancho|bodega|oficina|local_comercial|industrial|otro",
     operation_type: "offer|closed_sale|rent|land_reference|construction_cost|cadastral_value|historical_valuation|other",
     price: 0, price_low: null, price_high: null, price_basis: "total|m2_built|m2_land|ha|other", currency: "MXN",
@@ -168,6 +168,7 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
     "Distingue ofertas de venta, cierres acreditados, rentas, valores fiscales, avalúos históricos, rangos de suelo y costos de construcción.",
     "No conviertas costos paramétricos ni rangos agregados de una guía en ventas comparables individuales. Conserva los rangos mínimo y máximo.",
     "No inventes datos, fechas, URLs ni evidencia. No atribuyas a la propiedad del cliente características de un ejemplo o un comparable.",
+    "land_area_m2 y built_area_m2 con scope subject sólo representan superficies TOTALES explícitas del inmueble completo. Una superficie de oficina, mezanine, módulo o área de bodega es un componente: usa scope component y field_key component_area_m2, con su nombre en evidence. No sumes componentes para inferir una construcción total no acreditada, ni conviertas m2 de terreno en construidos.",
     "Las páginas publicitarias sin datos valuatorios siguen analizadas: descríbelas; marca ilegible sólo si no se puede leer.",
     "Documento: " + source.title + ". Categoría: " + source.category + ". Origen: " + (source.kind === "knowledge" ? "referencia técnica del repositorio; todos los hechos son reference" : "documento del expediente; distingue sujeto de referencias"),
   ].join("\n");

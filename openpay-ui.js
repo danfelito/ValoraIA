@@ -27,7 +27,7 @@
   async function commercialSubmit(event) {
     event.preventDefault(); event.stopImmediatePropagation();
     const form = event.currentTarget, button = document.getElementById('send'), status = document.getElementById('rs'), fd = new FormData(form), payload = {};
-    for (const [key,value] of fd.entries()) payload[key] = value;
+    for (const [key,value] of fd.entries()) if(key!=='intake_files')payload[key] = value;
     payload.privacy_accepted = fd.get('privacy_accepted') === 'on';
     payload.marketing_consent = fd.get('marketing_consent') === 'on';
     payload.service_type = 'commercial';
@@ -43,22 +43,28 @@
     button.disabled = true;
     status.innerHTML = '<div class="status">Preparando tu expediente y la liga segura de pago…</div>';
     try {
-      const land = ['terreno','rancho'].includes(payload.property_type);
+      const {validateIntakeFiles,uploadIntakeFiles}=await import('./upload-intake.mjs');
+      const files=fd.getAll('intake_files').filter(file=>file.size);
+      validateIntakeFiles(files);
+      const land = ['terreno','rancho'].includes(payload.property_type)||(['bodega','industrial'].includes(payload.property_type)&&payload.comparison_area_basis==='land');
       const area = Number(payload[land ? 'land_area_m2' : 'built_area_m2']);
       if (!payload.region?.trim() || !payload.municipality?.trim() || !Number.isFinite(area) || area <= 0) {
         throw new Error('Antes de pagar, completa estado, municipio y la superficie '+(land?'de terreno':'construida')+' mayor a cero.');
       }
-      let requestId = sessionStorage.getItem(pendingKey);
-      if (requestId) {
-        const updated = await db.rpc('update_client_property', {p_request_id:requestId,p_fields:payload});
-        if (updated.error) throw updated.error;
-      }
+      const fingerprint=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(payload))))].map(n=>n.toString(16).padStart(2,'0')).join('');
+      // Only retry this exact capture. A stale paid/test request or a different
+      // property must never be silently overwritten by starting another test.
+      let requestId = sessionStorage.getItem(pendingKey+'_fingerprint')===fingerprint?sessionStorage.getItem(pendingKey):null;
       if (!requestId) {
         const saved = await db.rpc('submit_valuation_request', { payload });
         if (saved.error) throw saved.error;
         requestId = saved.data.request_id;
         sessionStorage.setItem(pendingKey, requestId);
+        sessionStorage.setItem(pendingKey+'_fingerprint',fingerprint);
       }
+      const auth=await db.auth.getSession();
+      await uploadIntakeFiles(db,auth.data.session?.user.id,requestId,files,(n,total)=>{status.textContent=`Guardando evidencia ${n}/${total} antes del pago…`;});
+      status.textContent='Evidencia guardada. Preparando la liga de pago…';
       const checkout = await db.functions.invoke('openpay-create-checkout', { body: { request_id: requestId, test_mode: testMode } });
       if (checkout.error) {
         const detail = await checkout.error.context?.json?.().catch(() => null);
@@ -99,6 +105,8 @@
   function statusView() {
     sessionStorage.removeItem('valoraia_pending_commercial_request');
     sessionStorage.removeItem('valoraia_pending_commercial_test');
+    sessionStorage.removeItem('valoraia_pending_commercial_request_fingerprint');
+    sessionStorage.removeItem('valoraia_pending_commercial_test_fingerprint');
     root.innerHTML = `<section class="selected-service commercial-selected"><div><span class="badge">Opinión de valor comercial</span><h1>Seguimiento de tu documento</h1><p>El PDF se genera únicamente después de que Openpay confirma el pago.</p></div></section><section class="card payment-status-card"><div class="status-icon">✓</div><h2>Estamos verificando tu pago</h2><p class="muted">Después analizaremos los comparables, generaremos el PDF y lo enviaremos al correo registrado.</p><div id="payment-progress" class="progress-list"><div class="progress-item active">1. Confirmación de pago</div><div class="progress-item">2. Análisis y comparables</div><div class="progress-item">3. Generación del PDF</div><div class="progress-item">4. Envío por correo</div></div><div id="status-box"><div class="status">Preparando el seguimiento…</div></div><div class="actions"><a class="btn primary" href="solicitud.html?id=${encodeURIComponent(returnedRequest)}">Abrir mi expediente</a><a class="btn secondary" href="cuenta.html">Mis solicitudes</a><a class="btn secondary" href="index.html">Volver al inicio</a></div></section>`;
   }
 
