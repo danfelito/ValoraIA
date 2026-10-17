@@ -39,6 +39,7 @@ export function assertSourcePath(source: Row) {
 }
 
 class IncompleteAnalysisError extends Error {}
+class ExtractionShapeError extends Error {}
 
 export async function requestAI(input: Row, key: string): Promise<Row> {
   if (!key) throw new Error("Falta configurar la API de análisis documental");
@@ -110,6 +111,9 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
     if (!blob) throw new Error("No se pudo leer " + source.title);
     file = new Uint8Array(await blob.arrayBuffer());
     hash = await digest(file);
+    // Check the original bytes, but do not parse/render a completed PDF again.
+    // A replaced file still invalidates this cache even if its path is unchanged.
+    if (cached && cached.content_hash === hash && cached.complete) return { ...source, evidence: cached, reused: true };
     if (source.mime_type === "application/pdf" || /\.pdf$/i.test(source.file_name || "")) {
       pdf = await PDFDocument.load(file);
       pages = pdf.getPageCount();
@@ -156,6 +160,7 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
       facts: extractionShape.facts.map(f=>({...f,page_number:pageNumbers[0]})),
       price_references: extractionShape.price_references.map(r=>({...r,page_number:pageNumbers[0]})),
     }),
+    "Son obligatorios los arrays pages, facts y price_references, incluso cuando no contienen datos: usa [] para facts o price_references vacíos. No cambies sus nombres ni los anides dentro de otro objeto.",
     "En cada referencia omite las claves desconocidas o no aplicables en lugar de repetir campos null; conserva siempre tipo de operación, unidad, página, confianza y evidencia. Los datos ausentes siguen siendo desconocidos, nunca cero.",
     "No dupliques filas por repeticiones de la capa OCR o marcas de agua. Conserva todos los modelos y conceptos distintos con precio visible; no confundas un subtotal, porcentaje o número de página con un precio inmobiliario.",
     "En tablas paramétricas devuelve UNA referencia por modelo constructivo: price es el precio unitario total de la fila. Conserva el desglose de esa misma fila en construction_model, direct_cost_m2, indirect_cost_m2, indirect_percent y total_cost_m2 cuando se publique. No crees tres referencias separadas para costo directo, indirectos y total del mismo modelo. No sumes ni agregues indirectos otra vez si ya están incluidos en el total. Si sólo se publica costo directo, identifica ese alcance y no inventes el total.",
@@ -174,7 +179,7 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
       ...(source.source_type === "url" ? { tools: [{ type: "web_search", external_web_access: true }], include: ["web_search_call.action.sources"] } : {}),
     }, config.apiKey);
     const analysis = JSON.parse(outputText(raw));
-    if (!Array.isArray(analysis.facts) || !Array.isArray(analysis.price_references)) throw new Error("Extracción documental incompleta");
+    if (!Array.isArray(analysis.facts) || !Array.isArray(analysis.price_references) || !Array.isArray(analysis.pages)) throw new ExtractionShapeError("Extracción documental incompleta: se requieren pages, facts y price_references");
     if (source.source_type === "url" && !consultedUrls(raw).includes(canonicalUrl(source.source_url)!)) throw new Error("La búsqueda no acredita la lectura del enlace solicitado");
     // Una página aislada ilegible de una guía técnica no debe bloquear todo el
     // expediente. Sus datos se excluyen y la advertencia queda en el informe.
@@ -204,6 +209,20 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
     await save(admin, source, cached, cached.complete ? "ready" : "processing");
     return { ...source, evidence: cached, reused: false };
   } catch (error) {
+    // Retry malformed schema on the same page at most twice. Never normalize
+    // missing arrays to [] or mark a failed extraction as a read page.
+    const shapeFailures = (cached.block_retries || []).filter((r: Row) => r.start === start && r.kind === "shape").length;
+    if (error instanceof ExtractionShapeError && shapeFailures < 2) {
+      cached.page_limit = Math.max(1, Math.floor(pageNumbers.length / 2));
+      cached.block_retries = [...(cached.block_retries || []), {
+        kind: "shape", start, attempted_pages: pageNumbers.length, retry_pages: cached.page_limit,
+        reason: error.message, at: new Date().toISOString(),
+      }];
+      cached.processed_at = new Date().toISOString();
+      cached.signature = await sign(cached, config.secret);
+      await save(admin, source, cached, "processing");
+      return { ...source, evidence: cached, reused: false };
+    }
     // Dense price tables may exceed the response budget for a multi-page block.
     // Discard that response and retry fewer pages; never mark a truncated block
     // as read or discard the remaining pages to make the analysis pass.

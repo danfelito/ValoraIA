@@ -7,6 +7,7 @@ import { PDFDocument } from "npm:pdf-lib@1.17.1";
 import { numberValue, resolveSubject, selectComparables, marketStatistics, validatePageCoverage, normalizeBlockPages, contextualReferences, documentCandidates } from "../supabase/functions/_shared/commercial-core.ts";
 import { processSourceStep, validEvidence } from "../supabase/functions/_shared/commercial-evidence.ts";
 import { verifyServiceCredential } from "../supabase/functions/_shared/service-auth.ts";
+import { knowledgeMarkdown } from "../knowledge-markdown.mjs";
 import type { Row } from "../supabase/functions/_shared/commercial-core.ts";
 
 const property = {address_line:"Ejemplo 99",land_area_m2:120,built_area_m2:100,bedrooms:2,bathrooms:2,parking_spaces:1,construction_year:2020,conservation_state:"Bueno"};
@@ -132,6 +133,34 @@ async function inputPdf(pages:number) {
   return pdf.save();
 }
 const config={secret:"test-secret",apiKey:"test-key",model:"test-model"};
+test("Markdown conserva ceros, rangos, modelos, páginas originales y advertencias sin exportar la firma",()=>{
+  const evidence={version:'test',content_hash:'hash-original',signature:'PRIVATE-SIGNATURE',complete:false,page_count:214,completed_pages:2,
+    chunks:[{analysis:{pages:[{page_number:1,original_page_number:215,readable:true,summary:'Modelo | total'},{page_number:2,original_page_number:216,readable:false,summary:'No legible'}]}}],
+    facts:[{page_number:1,field_key:'parking_spaces',value:0,evidence:'Sin cajones'}],
+    price_references:[{page_number:1,original_page_number:215,title:'Modelo A',price_low:18000,price_high:25000,currency:'MXN',price_basis:'m2_built',direct_cost_m2:16000,indirect_percent:12,total_cost_m2:17920,evidence:'Tabla <script>alert(1)</script>'},
+      {page_number:2,price:99999999,evidence:'Dato ilegible excluido'}],warnings:['Página 216 excluida'],valuation_guidance:['No sumar indirectos dos veces']};
+  const text=knowledgeMarkdown({id:'source',title:'Catálogo',analysis:{commercial_evidence:evidence}});
+  for(const value of ['PARCIAL','Página 215 (archivo: 1)','18000','25000','m2_built','indirect_percent','17920','| value | 0 |','Página 216 excluida','&lt;script&gt;'])assert.ok(text.includes(value),value);
+  for(const value of ['PRIVATE-SIGNATURE','99999999','<script>'])assert.ok(!text.includes(value),value);
+});
+
+test("la extracción malformada reintenta sin acreditar páginas y termina en error tras dos reintentos",async()=>{
+  const source={id:'shape',organization_id:'org-test',title:'Catálogo',file_name:'shape.pdf',mime_type:'application/pdf',kind:'knowledge',bucket:'valuation-knowledge',storage_path:'org-test/shape.pdf',analysis:{}};
+  const db=fakeDb({knowledge_sources:[source]},new Map([['valuation-knowledge/org-test/shape.pdf',await inputPdf(1)]])), original=globalThis.fetch;
+  globalThis.fetch=async()=>Response.json({status:'completed',output_text:'{"pages":[{"page_number":1}],"price_references":[{"price":99999999}]}'});
+  try{
+    for(let i=0;i<2;i++){
+      const result=await processSourceStep(db,source,config);
+      assert.equal(result.evidence.chunks.length,0);assert.equal(result.evidence.complete,false);
+      assert.equal(await validEvidence(result.evidence,'org-test','test-secret'),true);
+    }
+    await assert.rejects(processSourceStep(db,source,config),/Extracción documental incompleta/);
+    assert.equal((source as Row).status,'error');assert.equal((source as Row).analysis.commercial_evidence.chunks.length,0);
+    // A later valid response resumes without importing prices from failed responses.
+    globalThis.fetch=async()=>Response.json({status:'completed',output_text:JSON.stringify({pages:[{page_number:1,readable:true}],facts:[],price_references:[]})});
+    const result=await processSourceStep(db,source,config);assert.equal(result.evidence.complete,true);assert.deepEqual(result.evidence.price_references,[]);
+  }finally{globalThis.fetch=original;}
+});
 test("verifica claves de servicio con Auth del propio proyecto y rechaza falsificaciones y redirecciones",async()=>{
   const original=globalThis.fetch;let calls=0;
   globalThis.fetch=async(url:any,options:any)=>{
