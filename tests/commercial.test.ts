@@ -133,6 +133,18 @@ async function inputPdf(pages:number) {
   return pdf.save();
 }
 const config={secret:"test-secret",apiKey:"test-key",model:"test-model"};
+test("reutiliza la lectura completa sin IA y la invalida si cambian los bytes del original",async()=>{
+  const source={id:'cache',organization_id:'org-test',title:'Catálogo',file_name:'cache.pdf',mime_type:'application/pdf',kind:'knowledge',bucket:'valuation-knowledge',storage_path:'org-test/cache.pdf',analysis:{}};
+  const files=new Map([['valuation-knowledge/org-test/cache.pdf',await inputPdf(1)]]),db=fakeDb({knowledge_sources:[source]},files), original=globalThis.fetch;
+  let calls=0;
+  globalThis.fetch=async(_url:any,options:any)=>{calls++;return Response.json({status:'completed',output_text:JSON.stringify(extraction(JSON.parse(options.body).input[0].content[0].text,true))});};
+  try{
+    assert.equal((await processSourceStep(db,source,config)).evidence.complete,true);
+    assert.equal((await processSourceStep(db,source,config)).reused,true);assert.equal(calls,1);
+    files.set('valuation-knowledge/org-test/cache.pdf',await inputPdf(2));
+    const changed=await processSourceStep(db,source,config);assert.equal(changed.reused,false);assert.equal(changed.evidence.page_count,2);assert.equal(calls,2);
+  }finally{globalThis.fetch=original;}
+});
 test("Markdown conserva ceros, rangos, modelos, páginas originales y advertencias sin exportar la firma",()=>{
   const evidence={version:'test',content_hash:'hash-original',signature:'PRIVATE-SIGNATURE',complete:false,page_count:214,completed_pages:2,
     chunks:[{analysis:{pages:[{page_number:1,original_page_number:215,readable:true,summary:'Modelo | total'},{page_number:2,original_page_number:216,readable:false,summary:'No legible'}]}}],
