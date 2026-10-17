@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {uploadIntakeFiles,validateIntakeFiles} from '../upload-intake.mjs';
+import {uploadIntakeFiles,validateIntakeFiles,captureFingerprint} from '../upload-intake.mjs';
+test('no reutiliza un expediente de otra sesión ni una propiedad diferente',async()=>{
+  const data={property_type:'bodega',land_area_m2:400};
+  const first=await captureFingerprint(data,'user-one');
+  assert.equal(first,await captureFingerprint(data,'user-one'));
+  assert.notEqual(first,await captureFingerprint(data,'user-two'));
+  assert.notEqual(first,await captureFingerprint({...data,land_area_m2:450},'user-one'));
+  await assert.rejects(captureFingerprint(data,null),/Inicia sesión/);
+});
 test('carga evidencia antes del pago y reanuda sin duplicar ni sobrescribir archivos',async()=>{
   const rows=[],objects=new Set();let uploaded=0;
   const db={from(table){let inserted=null;const query={select(){return this},eq(){return this},single:async()=>({data:{organization_id:'org-test'}}),

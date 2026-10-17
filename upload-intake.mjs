@@ -1,5 +1,9 @@
 const supported = /^(application\/pdf|image\/(jpeg|png|webp))$/;
 const fail = result => { if(result.error) throw new Error(result.error.message); return result.data; };
+export async function captureFingerprint(payload,userId) {
+  if(!userId)throw new Error('Inicia sesión antes de preparar el expediente.');
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({payload,userId}))))].map(n=>n.toString(16).padStart(2,'0')).join('');
+}
 export function validateIntakeFiles(files) {
   let images=0;
   for(const file of files){

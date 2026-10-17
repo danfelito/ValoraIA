@@ -43,7 +43,7 @@
     button.disabled = true;
     status.innerHTML = '<div class="status">Preparando tu expediente y la liga segura de pago…</div>';
     try {
-      const {validateIntakeFiles,uploadIntakeFiles}=await import('./upload-intake.mjs');
+      const {validateIntakeFiles,uploadIntakeFiles,captureFingerprint}=await import('./upload-intake.mjs?v=2');
       const files=fd.getAll('intake_files').filter(file=>file.size);
       validateIntakeFiles(files);
       const land = ['terreno','rancho'].includes(payload.property_type)||(['bodega','industrial'].includes(payload.property_type)&&payload.comparison_area_basis==='land');
@@ -51,7 +51,8 @@
       if (!payload.region?.trim() || !payload.municipality?.trim() || !Number.isFinite(area) || area <= 0) {
         throw new Error('Antes de pagar, completa estado, municipio y la superficie '+(land?'de terreno':'construida')+' mayor a cero.');
       }
-      const fingerprint=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(payload))))].map(n=>n.toString(16).padStart(2,'0')).join('');
+      const auth=await db.auth.getSession();
+      const fingerprint=await captureFingerprint(payload,auth.data.session?.user.id);
       // Only retry this exact capture. A stale paid/test request or a different
       // property must never be silently overwritten by starting another test.
       let requestId = sessionStorage.getItem(pendingKey+'_fingerprint')===fingerprint?sessionStorage.getItem(pendingKey):null;
@@ -62,7 +63,6 @@
         sessionStorage.setItem(pendingKey, requestId);
         sessionStorage.setItem(pendingKey+'_fingerprint',fingerprint);
       }
-      const auth=await db.auth.getSession();
       await uploadIntakeFiles(db,auth.data.session?.user.id,requestId,files,(n,total)=>{status.textContent=`Guardando evidencia ${n}/${total} antes del pago…`;});
       status.textContent='Evidencia guardada. Preparando la liga de pago…';
       const checkout = await db.functions.invoke('openpay-create-checkout', { body: { request_id: requestId, test_mode: testMode } });
