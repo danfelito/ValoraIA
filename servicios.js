@@ -173,12 +173,15 @@
             <div class="field"><label>Código postal</label><input name="postal_code"></div>
             <div class="field"><label>Terreno (m²)</label><input name="land_area_m2" type="number" min="0" step="0.01"></div>
             <div class="field"><label>Construcción (m²)</label><input name="built_area_m2" type="number" min="0" step="0.01"></div>
+            <div class="field full"><label>Base de comparación de bodegas e industriales</label><select name="comparison_area_basis"><option value="auto">Habitual según tipo de inmueble</option><option value="land">Bodegas / industriales: precio total por m² de terreno</option><option value="built">Bodegas / industriales: precio total por m² construido</option></select><small>Usa terreno sólo para bodegas o industriales. Se comparan inmuebles con construcción, conservando las diferencias de oficinas, mezanine y estado.</small></div>
             <div class="field"><label>Recámaras</label><input name="bedrooms" type="number" min="0"></div>
             <div class="field"><label>Baños</label><input name="bathrooms" type="number" min="0" step="0.5"></div>
             <div class="field"><label>Estacionamientos</label><input name="parking_spaces" type="number" min="0"></div>
             <div class="field"><label>Año de construcción</label><input name="construction_year" type="number" min="1800" max="2100"></div>
             <div class="field"><label>Conservación</label><select name="conservation_state"><option value="">Selecciona</option><option>Nuevo</option><option>Bueno</option><option>Regular</option><option>Para remodelar</option></select></div>
             <div class="field"><label>Urgencia</label><select name="urgency"><option>Normal</option><option>Alta</option><option>Sin fecha definida</option></select></div>
+            <div class="field full"><label>Enlace del anuncio de este inmueble</label><input name="subject_listing_url" type="url" placeholder="https://..."><small>Sirve para excluir la propiedad de su propia muestra de comparables.</small></div>
+            <div class="field"><label>Precio anunciado (sólo para contraste)</label><input name="asking_price" type="number" min="0" step="0.01"></div>
             <div class="field full"><label>Descripción y datos adicionales</label><textarea name="property_notes" placeholder="Servicios, acabados, antigüedad, situación legal, accesos, mejoras y ocupación."></textarea></div>
           </div>
 

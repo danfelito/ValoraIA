@@ -91,6 +91,23 @@ test("no emite cifra si la muestra es insuficiente o dispersa",()=>{
   assert.throws(()=>marketStatistics([1,2,100].map(n=>({adjusted_unit:n,price:n})),subject),/dispersión/);
 });
 
+test("bodegas: compara por terreno sólo cuando se elige, sin convertirlas en lotes baldíos",()=>{
+  const draft={...structuredClone(request),property_type:'bodega',intake_data:{comparison_area_basis:'land'},valuation_cases:{...request.valuation_cases,locality:'Aries II'}};
+  const warehouse=resolveSubject({land_area_m2:400,built_area_m2:null},draft,[]);
+  assert.equal(warehouse.area,400);assert.equal(warehouse.area_basis,'land');assert.equal(warehouse.property_type,'bodega');
+  const inputs=[1,2,3].map(i=>comparable(i,{property_type:'bodega',locality:'Aries II',land_area_m2:400,built_area_m2:null,price:4000000+i*200000}));
+  inputs.push(comparable(4,{property_type:'terreno',locality:'Aries II',land_area_m2:400,price:1200000}));
+  inputs.push(comparable(5,{property_type:'bodega',locality:'Aries II',land_area_m2:null,built_area_m2:400}));
+  const selection=selectComparables(warehouse,inputs,urls,'2026-10-07');
+  assert.equal(selection.included.length,3);assert.equal(selection.excluded.length,2);
+  assert.equal(marketStatistics(selection.included,warehouse).estimated,4400000);
+  assert.throws(()=>resolveSubject({land_area_m2:400,built_area_m2:null},{...draft,intake_data:{}},[]),/superficie de construcción/);
+  assert.throws(()=>resolveSubject(property,{...request,intake_data:{comparison_area_basis:'land'}},[]),/sólo está habilitada/);
+  const intake={property_type:'bodega',comparison_area_basis:'land',address_line:'Calle Tlaloc s/n',municipality:'Veracruz',region:'Veracruz',land_area_m2:400};
+  assert.deepEqual(commercialIntakeIssues(intake),[]);
+  assert.equal(commercialIntakeIssues({...intake,land_area_m2:null,built_area_m2:400}).length,1);
+});
+
 class Query {
   db: any; table: string; mode="select"; filters:Array<(row:Row)=>boolean>=[]; values:any; singleMode=false; optional=false;
   constructor(db:any,table:string){this.db=db;this.table=table;}

@@ -93,6 +93,7 @@ export async function commercialPdf(data: Row): Promise<Uint8Array> {
   text(s.property_type + " en " + [s.locality, s.municipality, s.region].filter(Boolean).join(", "), 12, true);
   text("Solicitante: " + data.client);
   text("Superficie utilizada: " + s.area + " m2 de " + (s.area_basis === "land" ? "terreno" : "construcción") + ".");
+  if (s.area_basis === "land" && ["bodega","industrial"].includes(s.property_type)) text("Base elegida: precio total de bodegas/industriales construidos dividido entre su terreno. Incluye el inmueble mejorado; no representa precio de suelo baldío. Las diferencias constructivas requieren contraste independiente.", 10, true);
   text("Se evaluaron " + data.documents.length + " archivos o fuentes, con " + data.documents.reduce((n: number, d: Row) => n + d.evidence.page_count, 0) + " páginas o unidades de lectura. Los documentos duplicados se registran y no multiplican la muestra.");
   text("La cifra central usa la mediana de los valores unitarios de " + stats.count + " " + (stats.operation_type === "offer" ? "ofertas" : "cierres documentados") + " seleccionados. El promedio aritmético también se muestra para facilitar la comparación.");
   if (s.asking_price) text("Precio anunciado del sujeto: " + money(s.asking_price, currency) + ". Diferencia respecto de la opinión central: " + ((s.asking_price / stats.estimated - 1) * 100).toFixed(1) + "%.");
@@ -207,15 +208,25 @@ export async function commercialPdf(data: Row): Promise<Uint8Array> {
   newPage("4. Fuentes documentales y sondeo público");
   text("Cada dato documental conserva la fuente, página, fecha y finalidad. Su presencia en el expediente no implica que sea un precio de venta comparable.", 10);
   const refs = data.contextual_references || [];
+  // A client report must not reproduce every catalogue model. All extracted
+  // records remain in the private repository; print applied market evidence
+  // and matching-zone land context, with an explicit count of the remainder.
+  const relevantRefs = refs.filter((r: Row) => data.comparables.some((c: Row) =>
+    c.source_id === r.source_id && c.page_number === r.page_number && c.title === r.title)
+    || (r.operation_type === "land_reference" && r.applicable_location));
+  const printedRefs = relevantRefs.slice(0, 12);
+  const costCount = refs.filter((r: Row) => r.operation_type === "construction_cost").length;
+  if (costCount) text("El repositorio contiene " + costCount + " referencias de costos compatibles con la categoría general del inmueble. No se aplicaron al valor: falta seleccionar y justificar el modelo, alcance, ajuste regional/temporal y depreciación. No se reproducen todos los modelos del catálogo en este informe.", 9);
+  if (relevantRefs.length > printedRefs.length) text("Se muestran " + printedRefs.length + " de " + relevantRefs.length + " antecedentes pertinentes. La extracción completa permanece en el repositorio privado; los comparables usados se muestran íntegros en la sección de mercado.", 9);
   if (!refs.length) text("Los documentos analizados no aportaron referencias monetarias compatibles con el tipo de inmueble. Esto no reemplaza las demás aportaciones documentales.");
-  for (const r of refs) {
+  for (const r of printedRefs) {
     ensure(120);
     text(r.title + " | " + label(r.operation_type), 10, true, 3);
     const value = r.price_low !== null && r.price_low !== undefined && r.price_high !== null && r.price_high !== undefined
       ? money(r.price_low, r.currency || currency) + " a " + money(r.price_high, r.currency || currency)
       : r.price !== null && r.price !== undefined ? money(r.price, r.currency || currency) : "Importe no acreditado";
     text(value + " | Base: " + label(r.price_basis) + " | Fecha: " + (r.date || "No acreditada") + ".", 9, false, 3);
-    text("Fuente: " + r.source + ", p. " + r.page_number + ". Ubicación: " + [r.locality, r.municipality, r.region].filter(Boolean).join(", "), 8.8, false, 3);
+    text("Fuente: " + r.source + ", p. " + (r.original_page_number || r.page_number) + ". Ubicación: " + [r.locality, r.municipality, r.region].filter(Boolean).join(", "), 8.8, false, 3);
     text(r.treatment + (r.applicable_location ? "" : " Su cobertura geográfica no coincide plenamente con el sujeto."), 9);
     const included = data.comparables.some((c: Row) => c.source_hash === r.source_hash && c.page_number === r.page_number && c.title === r.title);
     text(included ? "Se incorporó a la muestra de mercado al cumplir los filtros de comparabilidad." : "Se conservó como contexto técnico o antecedente; no se promedió con las ofertas actuales.", 8.7);

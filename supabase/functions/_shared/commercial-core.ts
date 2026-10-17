@@ -1,5 +1,6 @@
+import { comparisonBasis } from "./comparison-basis.ts";
 export const PIPELINE_VERSION = "commercial-evidence-3";
-export const REPORT_VERSION = "commercial-report-3";
+export const REPORT_VERSION = "commercial-report-4";
 export type Row = Record<string, any>;
 
 export function numberValue(value: unknown): number | null {
@@ -152,7 +153,10 @@ export function resolveSubject(property: Row, request: Row, documents: Row[], ad
   }
   subject.land_area_m2 = numberValue(subject.land_area_m2);
   subject.built_area_m2 = numberValue(subject.built_area_m2);
-  subject.area_basis = ["terreno", "rancho"].includes(subject.property_type) ? "land" : "built";
+  subject.area_basis = comparisonBasis(subject.property_type, intake.comparison_area_basis);
+  if (subject.area_basis === "land" && ["bodega", "industrial"].includes(subject.property_type)) {
+    subject.warnings.push({ field: "area_basis", reason: "Comparación de bodegas/industriales construidos por m2 de terreno, seleccionada expresamente. El precio incluye la construcción; no es un valor unitario de suelo baldío. La construcción y su estado deben contrastarse por separado." });
+  }
   subject.area = subject.area_basis === "land" ? subject.land_area_m2 : subject.built_area_m2;
   if (!subject.area || subject.area <= 0) throw new Error("Falta la superficie de " + (subject.area_basis === "land" ? "terreno" : "construcción") + " aplicable; no se sustituirá por otra superficie");
   if (subject.conflicts.length) throw new Error("Hay discrepancias documentales de superficie. Resuélvelas en Conciliación antes de emitir la opinión");
