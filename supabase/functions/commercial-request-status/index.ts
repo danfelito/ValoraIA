@@ -21,7 +21,7 @@ Deno.serve(async (req: Request) => {
     if (row.created_by !== result.data.user.id) return json({ error: "Sin acceso" }, 403);
     const report = check(await admin.from("commercial_reports").select("report_data,error_message").eq("request_id", id).maybeSingle());
     let downloadUrl: string | null = null;
-    if (row.service_type === "commercial" && row.payment_status === "paid" && row.document_status === "ready" && row.document_storage_path && row.document_storage_path.startsWith(row.organization_id + "/" + row.case_id + "/commercial/")) {
+    if (row.service_type === "commercial" && row.payment_status === "paid" && row.document_storage_path && row.document_storage_path.startsWith(row.organization_id + "/" + row.case_id + "/commercial/")) {
       downloadUrl = check(await admin.storage.from("valuation-documents").createSignedUrl(row.document_storage_path, 3600)).signedUrl;
     }
     const pipeline = report?.report_data?.pipeline;
@@ -31,6 +31,7 @@ Deno.serve(async (req: Request) => {
       document_emailed_at: row.document_emailed_at, invoice_requested: row.invoice_requested, invoice_status: row.invoice_status,
       invoice_pdf_url: row.invoice_pdf_url, invoice_xml_url: row.invoice_xml_url, outdated,
       folio: row.valuation_cases?.folio, download_url: downloadUrl, report_version: report?.report_data?.version,
+      outcome: report?.report_data?.outcome, outcome_reason: report?.report_data?.reason,
       stage: pipeline?.stage, completed_sources: pipeline?.completed_sources, source_count: pipeline?.source_count,
       completed_pages: pipeline?.completed_pages, total_pages: pipeline?.total_pages,
       source_title: pipeline?.source_title, review_reason: report?.error_message,

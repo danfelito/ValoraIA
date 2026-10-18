@@ -1,6 +1,6 @@
 import { comparisonBasis } from "./comparison-basis.ts";
 export const PIPELINE_VERSION = "commercial-evidence-3";
-export const REPORT_VERSION = "commercial-report-4";
+export const REPORT_VERSION = "commercial-report-5";
 export type Row = Record<string, any>;
 
 export function numberValue(value: unknown): number | null {

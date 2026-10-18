@@ -5,6 +5,7 @@ import { inputSnapshot } from "./report-inputs.ts";
 export { inputSnapshot } from "./report-inputs.ts";
 import { commercialPdf } from "./commercial-pdf.ts";
 import { VALUATION_MODEL } from "./llm-config.ts";
+import { saveDeliverable, reviewReason } from "./report-deliverable.ts";
 
 function table(config: Row) { return config.preview ? "valuation_report_previews" : "commercial_reports"; }
 function key(config: Row) { return config.preview ? "case_id" : "request_id"; }
@@ -127,12 +128,14 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
     const registered = stored.map((c: Row) => ({ ...c, origin: "web", url: c.source_url, source: c.source_name, currency: c.currency_code,
       price_basis: "total", date: c.observed_at, price_evidence: c.notes, area_evidence: c.notes, reviewed: c.source_quality === "verified" }));
     const selection = selectComparables(subject, [...market.comparables, ...registered, ...documentCandidates(documents)], market.sources, new Date().toISOString().slice(0, 10));
+    await progress(admin,request,runId,config,"market",{market_diagnostics:{market,included:selection.included,excluded:selection.excluded}});
     const statistics = marketStatistics(selection.included, subject);
     const refreshedCase = check(await admin.from("valuation_cases").select("*").eq("id", request.case_id).single());
     const refreshedRequest = request.internal ? request : check(await admin.from("service_requests").select("*").eq("id", request.id).single());
     const end = await inputSnapshot(admin, { ...refreshedRequest, valuation_cases: refreshedCase });
     if (end.fingerprint !== prepared.fingerprint) throw new Error("La ficha o las fuentes cambiaron durante el análisis. Regenera el informe para incorporar toda la información actual");
     const report: Row = { version: REPORT_VERSION, preview: !!config.preview, service_type: request.service_type,
+      outcome: "estimated",
       folio: request.valuation_cases?.folio || request.case_id, generated_date: new Intl.DateTimeFormat("es-MX", { timeZone: "America/Mexico_City" }).format(new Date()),
       generated_at: new Date().toISOString(), client: request.client_name || "Solicitante no indicado", subject, statistics,
       comparables: selection.included, excluded: selection.excluded, contextual_references: contextualReferences(subject, documents), documents,
@@ -163,6 +166,7 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
     report.market_observation = { sources: market.sources, survey: market.survey, response_id: market.response_id, observed_at: market.observed_at };
     const previous = await record(admin, request, config);
     report.previous_versions = previous.report_data?.previous_versions || [];
+    if(previous.pdf_storage_path&&!report.previous_versions.some((v:Row)=>v.path===previous.pdf_storage_path))report.previous_versions.push({path:previous.pdf_storage_path,generated_at:previous.generated_at});
     await update(admin, request, config, { status: "generated", report_data: report, pdf_storage_path: path, currency_code: subject.currency,
       subject_area_m2: subject.area, price_per_m2: statistics.unit, estimated_value: statistics.estimated, low_value: statistics.low, high_value: statistics.high,
       comparable_count: statistics.count, generated_at: report.generated_at, error_message: null });
@@ -176,6 +180,13 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
     console.error(error);
     if (!(await current(admin, request, runId, config).catch(() => false))) return;
     const previous = await record(admin, request, config), message = error instanceof Error ? error.message : "Error inesperado";
+    if (!config.preview) {
+      try {
+        const snapshot=await inputSnapshot(admin,request);
+        await saveDeliverable(admin,request,config,runId,snapshot,previous,reviewReason(message,previous.report_data?.pipeline?.stage),"insufficient_evidence");
+        return;
+      } catch(deliveryError) { console.error("No se pudo completar el informe de seguimiento",deliveryError); }
+    }
     await update(admin, request, config, { status: "needs_review", error_message: message,
       report_data: { ...previous.report_data, reason: message, pipeline: { ...previous.report_data.pipeline, stage: "needs_review", heartbeat: new Date().toISOString() } } });
     if (!config.preview) check(await admin.from("service_requests").update({ document_status: "needs_review", status: "in_review" }).eq("id", request.id));
@@ -207,6 +218,10 @@ export async function startReport(admin: any, request: Row, body: Row, config: R
         ...(old?.pdf_storage_path ? [{ path: old.pdf_storage_path, generated_at: old.generated_at }] : [])],
         pipeline: { run_id: runId, stage: "documents", client_fingerprint: snapshot.clientFingerprint, started_at: new Date().toISOString(), heartbeat: new Date().toISOString() } } }, { onConflict: key(config) }));
     if (!config.preview) check(await admin.from("service_requests").update({ document_status: "generating", status: "in_review" }).eq("id", request.id));
+    if (!config.preview && !old?.pdf_storage_path) {
+      const initialized=await record(admin,request,config);
+      await saveDeliverable(admin,request,config,runId,snapshot,initialized,"Tu pago está confirmado. Se registró la ficha y la evidencia recibida; la lectura documental y el estudio de mercado continúan. Este archivo inicial no contiene todavía una estimación.","received");
+    }
   }
   background(runStep(admin, request, runId, config));
   return { status: 202, body: { status: "generating", run_id: runId, message: "Se analizarán todos los documentos y las referencias públicas actuales de mercado y redes" } };

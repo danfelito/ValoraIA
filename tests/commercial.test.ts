@@ -8,6 +8,7 @@ import { numberValue, resolveSubject, selectComparables, marketStatistics, valid
 import { processSourceStep, validEvidence } from "../supabase/functions/_shared/commercial-evidence.ts";
 import { verifyServiceCredential } from "../supabase/functions/_shared/service-auth.ts";
 import { knowledgeMarkdown } from "../knowledge-markdown.mjs";
+import { startReport } from "../supabase/functions/_shared/report-pipeline.ts";
 import type { Row } from "../supabase/functions/_shared/commercial-core.ts";
 
 const property = {address_line:"Ejemplo 99",land_area_m2:120,built_area_m2:100,bedrooms:2,bathrooms:2,parking_spaces:1,construction_year:2020,conservation_state:"Bueno"};
@@ -19,6 +20,40 @@ const comparable = (i:number,extra:Row={}) => ({title:"Referencia simulada "+i,p
   land_area_m2:120,built_area_m2:[90,100,110][i-1]||115,bedrooms:2,bathrooms:2,parking_spaces:1,construction_year:2020,conservation_state:"Bueno",
   origin:"web",source:"Fuente simulada",url:"https://example.com/c"+i,date:"2026-10-07",price_evidence:"Precio publicado en ficha de prueba",area_evidence:"Superficie construida en ficha de prueba",...extra});
 const urls = [1,2,3,4,5,6].map(i=>"https://example.com/c"+i);
+
+test("cada pago conserva un PDF descargable aunque falte mercado o falle la IA",async()=>{
+  const original=globalThis.fetch;
+  try {
+    for(const mode of ['insufficient','provider_failure']) {
+      const rows:Row={service_requests:[structuredClone(request)],properties:[{...property,case_id:'case-test'}],valuation_cases:[request.valuation_cases],commercial_reports:[],adopted_values:[],data_conflicts:[],market_comparables:[],intake_documents:[],documents:[],knowledge_sources:[]};
+      const files=new Map<string,Uint8Array>(),db=fakeDb(rows,files),jobs:Promise<any>[]=[];
+      (globalThis as any).EdgeRuntime={waitUntil:(p:Promise<any>)=>jobs.push(p)};
+      const cfg={url:'https://project.example.com',secret:'test-secret',apiKey:'test-key',model:'gpt-6-luna',endpoint:'generate-commercial-report',preview:false};
+      globalThis.fetch=async(url:any,options:any)=>{
+        const body=JSON.parse(options.body);
+        if(String(url).includes('/functions/v1/')){const result=await startReport(db,request,body,cfg,true);return Response.json(result.body,{status:result.status});}
+        if(String(body.input).startsWith('REVISIÓN DE FICHA:'))return Response.json({status:'completed',output_text:JSON.stringify({observations:['Ficha declarada'],missing_information:['Comparables suficientes'],documentary_contrasts:[],declared_features:[]})});
+        if(mode==='provider_failure')return Response.json({error:{message:'Servicio externo no disponible'}},{status:503});
+        return Response.json({status:'completed',output_text:JSON.stringify({comparables:[comparable(1),comparable(2),comparable(3,{operation_type:'rent'})]}),output:[{type:'web_search_call',action:{sources:urls.map(url=>({url}))}}]});
+      };
+      assert.equal((await startReport(db,request,{},cfg,true)).status,202);
+      const receipt=rows.service_requests[0].document_storage_path;
+      assert.ok(files.has('valuation-documents/'+receipt),'El PDF inicial existe antes de esperar a la IA');
+      assert.equal(rows.service_requests[0].document_status,'generating');
+      for(let i=0;i<jobs.length;i++)await jobs[i];
+      const report=rows.commercial_reports[0];
+      assert.equal(rows.service_requests[0].payment_status,'paid');
+      assert.equal(rows.service_requests[0].document_status,'ready');
+      assert.equal(report.report_data.outcome,'insufficient_evidence');
+      assert.equal(report.estimated_value,null);assert.equal(report.low_value,null);assert.equal(report.price_per_m2,null);
+      assert.ok(report.report_data.previous_versions.some((v:Row)=>v.path===receipt));
+      const bytes=files.get('valuation-documents/'+report.pdf_storage_path)!;
+      assert.ok((await PDFDocument.load(bytes)).getPageCount()>0);
+      if(mode==='insufficient'){assert.equal(report.comparable_count,2);assert.ok(report.report_data.excluded.length);}
+      await mkdir('tmp',{recursive:true});await writeFile('tmp/informe-sin-estimacion-'+mode+'.pdf',bytes);
+    }
+  }finally{globalThis.fetch=original;delete (globalThis as any).EdgeRuntime;}
+});
 
 test("normaliza números mexicanos y decimales sin convertir null a cero",()=>{
   assert.equal(numberValue("512,40"),512.4);
