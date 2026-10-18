@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.110.8";
 import { check, inputSnapshot } from "../_shared/report-inputs.ts";
+import { REPORT_VERSION } from "../_shared/commercial-core.ts";
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json", "Cache-Control": "no-store" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: cors });
 Deno.serve(async (req: Request) => {
@@ -24,7 +25,7 @@ Deno.serve(async (req: Request) => {
       downloadUrl = check(await admin.storage.from("valuation-documents").createSignedUrl(row.document_storage_path, 3600)).signedUrl;
     }
     const pipeline = report?.report_data?.pipeline;
-    const outdated = row.document_status === "ready" && (report?.report_data?.version !== "commercial-report-3" || (await inputSnapshot(admin, row)).fingerprint !== report?.report_data?.input_fingerprint);
+    const outdated = row.document_status === "ready" && (report?.report_data?.version !== REPORT_VERSION || (await inputSnapshot(admin, row)).fingerprint !== report?.report_data?.input_fingerprint);
     return json({ id: row.id, payment_status: row.payment_status, payment_amount: row.payment_amount, payment_currency: row.payment_currency,
       payment_error: row.payment_error, document_status: row.document_status, document_generated_at: row.document_generated_at,
       document_emailed_at: row.document_emailed_at, invoice_requested: row.invoice_requested, invoice_status: row.invoice_status,

@@ -40,14 +40,17 @@ async function searchMarket(subject: Row, stored: Row[], apiKey: string): Promis
     "Contrasta recámaras, baños, estacionamientos, terreno, construcción, edad, niveles, conservación, calidad y equipamiento que estén visibles.",
     "No incluyas al inmueble sujeto ni versiones del mismo anuncio como evidencia independiente. Identifica duplicados aunque aparezcan en diferentes portales o redes.",
     "Sólo datos visibles, null para desconocidos. No inventes fechas, disponibilidad, cierres, precios, superficies ni enlaces. Distingue ofertas y cierres acreditados; excluye rentas.",
-    "Devuelve JSON con esta estructura: " + JSON.stringify(shape),
+    "Devuelve únicamente un objeto JSON válido, sin Markdown, texto externo ni marcas de citas fuera de los valores. Usa esta estructura: " + JSON.stringify(shape),
     "price_evidence y area_evidence: paráfrasis breves y fieles del dato leído, menos de 15 palabras por fragmento.",
     "Revisa también estas referencias si son pertinentes: " + stored.map(c => c.source_url).filter(Boolean).join(", "),
   ].join("\n");
   const raw = await requestAI({ model: VALUATION_MODEL,
     tools: [{ type: "web_search", external_web_access: true, user_location: { type: "approximate", country: "MX", city: subject.municipality, region: subject.region } }],
-    include: ["web_search_call.action.sources"], input: prompt, text: { format: { type: "json_object" } } }, apiKey);
-  const parsed = JSON.parse(outputText(raw));
+    // Web search rejects JSON mode. Request JSON in the prompt, then parse and
+    // validate it locally; keep the tool's source evidence separate from text.
+    include: ["web_search_call.action.sources"], input: prompt }, apiKey);
+  const text = outputText(raw).trim();
+  const parsed = JSON.parse(text.replace(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i, "$1"));
   if (!Array.isArray(parsed.comparables)) throw new Error("La búsqueda no devolvió referencias de mercado");
   const urls = consultedUrls(raw), known = new Set(urls);
   const survey = ["portales", "facebook", "instagram"].map(channel => {

@@ -326,7 +326,8 @@ test("flujo integrado: documentos, consulta web, PDF y descarga sin mezclar cost
     assert.equal(body.reasoning.effort,"high");
     if(typeof body.input==="string"&&body.input.startsWith("REVISIÓN DE FICHA:"))return Response.json({status:"completed",output_text:JSON.stringify({observations:["Datos simulados contrastados con la ficha"],missing_information:["Visita física pendiente"],documentary_contrasts:[],declared_features:[]})});
     if(body.tools?.[0]?.type==="web_search"){
-      searches++;return Response.json({id:"response-test",status:"completed",output_text:JSON.stringify({comparables:[1,2,3].map(i=>comparable(i))}),output:[{type:"web_search_call",action:{sources:urls.map(url=>({url}))}}]});
+      if(body.text?.format?.type==='json_object')return Response.json({error:{message:'Web Search cannot be used with JSON mode.'}},{status:400});
+      searches++;return Response.json({id:"response-test",status:"completed",output_text:'```json\n'+JSON.stringify({comparables:[1,2,3].map(i=>comparable(i))})+'\n```',output:[{type:"web_search_call",action:{sources:urls.map(url=>({url}))}}]});
     }
     extractions++;const prompt=body.input[0].content[0].text;
     return Response.json({status:"completed",output_text:JSON.stringify(extraction(prompt,prompt.includes("Costos simulados")))});
@@ -353,6 +354,11 @@ test("flujo integrado: documentos, consulta web, PDF y descarga sin mezclar cost
     assert.equal(report.report_data.contextual_references[0].operation_type,"construction_cost");
     const output=files.get("valuation-documents/"+report.pdf_storage_path)!;
     const pdf=await PDFDocument.load(output);assert.ok(pdf.getPageCount()>=6);
+    await import("../supabase/functions/commercial-request-status/index.ts");
+    const statusRequest=()=>new Request("https://project.example.com/status",{method:"POST",headers:{Authorization:"Bearer test-user","Content-Type":"application/json"},body:JSON.stringify({request_id:request.id})});
+    assert.equal((await (await handler(statusRequest())).json()).outdated,false);
+    rows.properties[0].notes="Cambio posterior de características";
+    assert.equal((await (await handler(statusRequest())).json()).outdated,true);
     await mkdir("tmp",{recursive:true});
     await writeFile("tmp/ejemplo-informe-comercial.pdf",output);
     await writeFile("tmp/report-preview.json",JSON.stringify({...report.report_data,documents:[
