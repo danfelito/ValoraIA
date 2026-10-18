@@ -44,7 +44,7 @@ test("cada pago conserva un PDF descargable aunque falte mercado o falle la IA",
       const report=rows.commercial_reports[0];
       assert.equal(rows.service_requests[0].payment_status,'paid');
       assert.equal(rows.service_requests[0].document_status,'ready');
-      assert.equal(report.report_data.outcome,'insufficient_evidence');
+      assert.equal(report.report_data.outcome,mode==='insufficient'?'insufficient_evidence':'analysis_incomplete');
       assert.equal(report.estimated_value,null);assert.equal(report.low_value,null);assert.equal(report.price_per_m2,null);
       assert.ok(report.report_data.previous_versions.some((v:Row)=>v.path===receipt));
       const bytes=files.get('valuation-documents/'+report.pdf_storage_path)!;

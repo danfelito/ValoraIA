@@ -82,6 +82,13 @@ async function continueRun(request: Row, runId: string, config: Row) {
 
 async function runStep(admin: any, request: Row, runId: string, config: Row) {
   try {
+    const queued=await record(admin,request,config);
+    const delivery=queued?.report_data?.pipeline?.pending_delivery;
+    if(!config.preview&&delivery){
+      const snapshot=await inputSnapshot(admin,request);
+      await saveDeliverable(admin,request,config,runId,snapshot,queued,delivery.reason,delivery.outcome);
+      return;
+    }
     const start = await inputSnapshot(admin, request), documents: Row[] = [];
     for (const source of start.sources) {
       await progress(admin, request, runId, config, "documents", { source_title: source.title, source_count: start.sources.length, completed_sources: documents.length });
@@ -180,10 +187,13 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
     console.error(error);
     if (!(await current(admin, request, runId, config).catch(() => false))) return;
     const previous = await record(admin, request, config), message = error instanceof Error ? error.message : "Error inesperado";
-    if (!config.preview) {
+    if (!config.preview && previous.report_data?.pipeline?.stage !== 'delivery') {
       try {
-        const snapshot=await inputSnapshot(admin,request);
-        await saveDeliverable(admin,request,config,runId,snapshot,previous,reviewReason(message,previous.report_data?.pipeline?.stage),"insufficient_evidence");
+        await progress(admin,request,runId,config,'delivery',{pending_delivery:{
+          reason:reviewReason(message,previous.report_data?.pipeline?.stage),
+          outcome:/tres comparables|dispersión|superficie|discrepancias|conflictos documentales/.test(message)?'insufficient_evidence':'analysis_incomplete'
+        }});
+        await continueRun(request,runId,config);
         return;
       } catch(deliveryError) { console.error("No se pudo completar el informe de seguimiento",deliveryError); }
     }
