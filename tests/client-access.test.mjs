@@ -21,7 +21,7 @@ test("aplica la identidad de Círculo y conserva el regreso al portal", async ()
   assert.match(css, /#ed1c2e/i);
   assert.match(paymentCss, /\.commercial-product\{[^}]*background:#111/);
   assert.match(html, /https:\/\/circulointernacionalveracruz\.org\//);
-  assert.match(html, /assets\/circulo-logo\.png/);
+  assert.match(html, /assets\/circulo-logo-dark\.svg/);
   assert.match(html, /alt="Círculo Internacional Bienes Raíces"/);
 });
 

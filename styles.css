@@ -15,4 +15,4 @@ body{background:#050505;color:#fff}.auth-brand{background:radial-gradient(circle
 /* Keep the professional identity inside the narrow sidebar. */
 .sidebar .logo{font-size:16px;line-height:1.25;align-items:center;white-space:normal}
 .logo i{min-width:40px;flex:0 0 40px;aspect-ratio:1}
-.logo i { display: inline-block; width: 180px; min-width: 180px; height: 50px; flex: 0 0 180px; border-radius: 6px; background: #fff url("assets/circulo-logo.png") center / contain no-repeat; font-size: 0; }
+.logo i { display: inline-block; width: 180px; min-width: 180px; height: 50px; flex: 0 0 180px; border-radius: 0; background: url("assets/circulo-logo-dark.svg") center / contain no-repeat; font-size: 0; }

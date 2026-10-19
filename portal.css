@@ -219,4 +219,4 @@ body, .landing-page { background: var(--bg); color: var(--ink); }
 .badge { background: var(--accent2); color: #ff9ca4; }
 .path-number, .status-icon { background: var(--accent2); color: var(--accent); }
 .panel-case-row { background: #151515; }
-.brand-logo { display: block; width: clamp(150px, 18vw, 190px); height: auto; flex: none; padding: 5px; border-radius: 6px; background: #fff; }
+.brand-logo { display: block; width: clamp(150px, 18vw, 190px); height: auto; flex: none; }
