@@ -21,7 +21,8 @@ test("aplica la identidad de Círculo y conserva el regreso al portal", async ()
   assert.match(css, /#ed1c2e/i);
   assert.match(paymentCss, /\.commercial-product\{[^}]*background:#111/);
   assert.match(html, /https:\/\/circulointernacionalveracruz\.org\//);
-  assert.match(html, /ValoraIA · Círculo Internacional/);
+  assert.match(html, /assets\/circulo-logo\.png/);
+  assert.match(html, /alt="Círculo Internacional Bienes Raíces"/);
 });
 
 test("muestra de inmediato el seguimiento y el acceso al expediente", async () => {
