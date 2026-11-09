@@ -1,0 +1,27 @@
+name: Supabase keepalive
+
+# Evita que Supabase pause el proyecto gratuito por 7 días de inactividad.
+# Hace una consulta mínima de solo lectura cada 3 días.
+on:
+  schedule:
+    - cron: "17 14 */3 * *"   # cada 3 días, 08:17 hora de Veracruz
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar la base de datos
+        run: |
+          set -e
+          URL="https://wctwkhixmmluckingjhf.supabase.co/rest/v1/price_lists?select=id&limit=1"
+          # Clave publicable (ya es pública en config.js); no da acceso administrativo.
+          KEY="sb_publishable_M2oDnNBIQiQeu2w5sANx1g_Iw1dS0ju"
+          for i in 1 2 3; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL" -H "apikey: $KEY")
+            echo "Intento $i: HTTP $CODE"
+            if [ "$CODE" = "200" ]; then exit 0; fi
+            sleep 20
+          done
+          echo "::error::Supabase no respondió (posiblemente pausado). Reactívalo en el panel."
+          exit 1
