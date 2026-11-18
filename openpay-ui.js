@@ -100,6 +100,19 @@
       button.insertAdjacentHTML('afterend', `<p class="button-helper">Al continuar guardarás el expediente y pasarás a la pasarela segura de Openpay. ${testMode ? 'Prueba interna: solo la cuenta administradora puede usar $1 en sandbox. ' : ''}El PDF se genera únicamente después de que el pago sea confirmado.</p>`);
     }
     form.addEventListener('submit', commercialSubmit, true);
+    if (!testMode) markAdmin(button);
+  }
+
+  // Owner/admin: el servidor exime el pago; aquí sólo se ajusta el texto.
+  async function markAdmin(button) {
+    try {
+      const { data } = await db.auth.getUser(); const user = data?.user; if (!user || !button) return;
+      const roles = await db.from('organization_members').select('role').eq('user_id', user.id).eq('status', 'active');
+      if (!(roles.data || []).some(m => ['owner','admin'].includes(m.role))) return;
+      button.textContent = 'Generar documento · Administrador (sin pago)';
+      const helper = button.parentElement?.querySelector('.button-helper');
+      if (helper) helper.textContent = 'Cuenta administradora: el documento se genera sin pasar por Openpay. La exención queda registrada.';
+    } catch (_) { /* si falla, se muestra el flujo normal */ }
   }
 
   function statusView() {

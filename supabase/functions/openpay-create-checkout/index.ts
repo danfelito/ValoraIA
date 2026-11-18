@@ -40,6 +40,21 @@ Deno.serve(async(req:Request)=>{
   if(property.error)return json({error:'No se pudo validar la ficha antes del pago'},409);
   const missing=commercialIntakeIssues({...row.intake_data,...property.data,property_type:row.property_type});
   if(missing.length)return json({error:'Completa antes de pagar: '+missing.join(', ')+'.'},409);
+  // Cuentas owner/admin de la organización generan sin pasar por Openpay.
+  // La exención queda registrada en payment_events para auditoría.
+  if(body.test_mode!==true){
+   const {data:adminMember}=await admin.from("organization_members").select("role,status").eq("organization_id",row.organization_id).eq("user_id",user.id).eq("status","active").maybeSingle();
+   if(adminMember&&["owner","admin"].includes(adminMember.role)){
+    const now=new Date().toISOString(),reference=`ADMIN-${requestId}`.slice(0,100);
+    await admin.from("payment_events").upsert({organization_id:row.organization_id,request_id:row.id,provider:"admin_waiver",provider_event_id:`admin_waiver:${row.id}`,event_type:"admin_waiver",amount:0,currency_code:"MXN",raw_payload:{waived_by:user.id,role:adminMember.role,at:now}},{onConflict:"provider,provider_event_id"});
+    const waived=await admin.from("service_requests").update({payment_status:"paid",status:"paid",payment_provider:"admin_waiver",payment_reference:reference,payment_method:"admin_waiver",payment_paid_at:now,payment_error:null,document_status:"queued",invoice_status:"not_requested"}).eq("id",row.id).neq("payment_status","paid");
+    if(waived.error) throw waived.error;
+    const task=fetch(`${url}/functions/v1/generate-commercial-report`,{method:"POST",headers:{Authorization:`Bearer ${service}`,"Content-Type":"application/json"},body:JSON.stringify({request_id:row.id})}).then(async r=>{if(!r.ok)console.error("generate-commercial-report",await r.text())}).catch(console.error);
+    // @ts-ignore
+    if(globalThis.EdgeRuntime?.waitUntil)globalThis.EdgeRuntime.waitUntil(task);else await task;
+    return json({status:"paid",waived:true,request_id:requestId});
+   }
+  }
   const merchant=Deno.env.get("OPENPAY_MERCHANT_ID"),privateKey=Deno.env.get("OPENPAY_PRIVATE_KEY");
   if(!merchant||!privateKey) return json({error:"Openpay todavía no está configurado. Agrega OPENPAY_MERCHANT_ID y OPENPAY_PRIVATE_KEY en los secretos de Supabase."},503);
   const {data:settings}=await admin.from("app_settings").select("openpay_environment,commercial_price,currency_code").eq("organization_id",row.organization_id).single();
