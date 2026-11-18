@@ -1,27 +1,40 @@
 name: Supabase keepalive
 
-# Evita que Supabase pause el proyecto gratuito por 7 días de inactividad.
-# Hace una consulta mínima de solo lectura cada 3 días.
+# Evita que Supabase pause el proyecto gratuito por inactividad.
+# Una consulta ligera cada 3 días no bastó (pausa del 16-nov-2026), así que
+# ahora corre a diario y toca base de datos, autenticación y almacenamiento.
 on:
   schedule:
-    - cron: "17 14 */3 * *"   # cada 3 días, 08:17 hora de Veracruz
+    - cron: "17 14 * * *"     # diario, 08:17 hora de Veracruz
+    - cron: "43 2 * * *"      # diario, 20:43 hora de Veracruz
   workflow_dispatch: {}
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Consultar la base de datos
+      - name: Generar actividad en Supabase
         run: |
-          set -e
-          URL="https://wctwkhixmmluckingjhf.supabase.co/rest/v1/price_lists?select=id&limit=1"
+          BASE="https://wctwkhixmmluckingjhf.supabase.co"
           # Clave publicable (ya es pública en config.js); no da acceso administrativo.
           KEY="sb_publishable_M2oDnNBIQiQeu2w5sANx1g_Iw1dS0ju"
-          for i in 1 2 3; do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL" -H "apikey: $KEY")
-            echo "Intento $i: HTTP $CODE"
-            if [ "$CODE" = "200" ]; then exit 0; fi
+          ok=0
+          for attempt in 1 2 3; do
+            ok=0
+            for path in \
+              "rest/v1/price_lists?select=id&limit=5" \
+              "rest/v1/promotions?select=id&limit=5" \
+              "rest/v1/subscribers?select=id&limit=1" \
+              "rest/v1/document_processing_jobs?select=id&limit=1" \
+              "auth/v1/settings" \
+              "storage/v1/bucket"; do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+                "$BASE/$path" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" || echo 000)
+              echo "Intento $attempt  $path -> HTTP $CODE"
+              if [ "$CODE" = "200" ]; then ok=$((ok+1)); fi
+            done
+            if [ "$ok" -ge 1 ]; then echo "Respuestas OK: $ok"; exit 0; fi
             sleep 20
           done
-          echo "::error::Supabase no respondió (posiblemente pausado). Reactívalo en el panel."
+          echo "::error::Supabase no respondió (posiblemente pausado). Reactívalo en https://supabase.com/dashboard/project/wctwkhixmmluckingjhf"
           exit 1
