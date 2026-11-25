@@ -197,7 +197,37 @@
     document.getElementById('request').onsubmit = submit;
     document.getElementById('request').insertAdjacentHTML('beforeend', '<datalist id="mx-estados"><option value="Aguascalientes"><option value="Baja California"><option value="Baja California Sur"><option value="Campeche"><option value="Chiapas"><option value="Chihuahua"><option value="Ciudad de México"><option value="Coahuila"><option value="Colima"><option value="Durango"><option value="Estado de México"><option value="Guanajuato"><option value="Guerrero"><option value="Hidalgo"><option value="Jalisco"><option value="Michoacán"><option value="Morelos"><option value="Nayarit"><option value="Nuevo León"><option value="Oaxaca"><option value="Puebla"><option value="Querétaro"><option value="Quintana Roo"><option value="San Luis Potosí"><option value="Sinaloa"><option value="Sonora"><option value="Tabasco"><option value="Tamaulipas"><option value="Tlaxcala"><option value="Veracruz"><option value="Yucatán"><option value="Zacatecas"></datalist>');
     wireAreaRequirement();
+    restoreDraft();
   }
+
+  // Borrador: lo capturado se guarda en esta pestaña y se recupera si la página se recarga.
+  const DRAFT_KEY = 'valoraia_draft_' + service;
+  const SKIP = new Set(['intake_files', 'privacy_accepted']);
+  function restoreDraft() {
+    const form = document.getElementById('request');
+    let draft = null;
+    try { draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch (_) { /* sin borrador */ }
+    // Se aplica después de que openpay-ui agrega sus campos (factura), que llegan un instante más tarde.
+    if (draft) setTimeout(() => {
+      for (const [name, value] of Object.entries(draft)) {
+        const el = form.elements[name];
+        if (!el || SKIP.has(name) || el.type === 'file') continue;
+        if (el.type === 'checkbox') { el.checked = !!value; el.dispatchEvent(new Event('change')); }
+        else el.value = value;
+      }
+      form.elements.property_type?.dispatchEvent(new Event('change'));
+    }, 0);
+    const save = () => {
+      const data = {};
+      for (const el of form.elements) {
+        if (!el.name || SKIP.has(el.name) || el.type === 'file') continue;
+        data[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+      }
+      try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch (_) { /* almacenamiento lleno o bloqueado */ }
+    };
+    form.addEventListener('input', save); form.addEventListener('change', save);
+  }
+  window.valoraiaClearDraft = () => { try { sessionStorage.removeItem(DRAFT_KEY); } catch (_) {} };
 
   // La superficie obligatoria depende del tipo de inmueble: terreno para terrenos y ranchos
   // (y bodegas/industriales comparados por terreno); construcción para todo lo demás.
@@ -236,6 +266,7 @@
       const result = await db.rpc('submit_valuation_request', { payload });
       if (result.error) throw result.error;
       last = result.data;
+      window.valoraiaClearDraft();
 
       if (service === 'professional') {
         const routeResult = await db.rpc('route_professional_request', { p_request_id: last.request_id });
@@ -329,9 +360,12 @@
     const result = await db.auth.getSession();
     session = result.data.session;
     session ? portal() : auth();
-    db.auth.onAuthStateChange((_event, currentSession) => {
+    db.auth.onAuthStateChange((event, currentSession) => {
       session = currentSession;
-      if (currentSession) portal();
+      // Al volver a la pestaña, Supabase renueva la sesión y emite eventos.
+      // Sólo se dibuja el formulario si todavía no está en pantalla; si no, se borraría lo capturado.
+      if (event === 'SIGNED_OUT') { if (!document.getElementById('quick-access')) auth(); return; }
+      if (currentSession && !document.getElementById('request')) portal();
     });
   })();
 })();

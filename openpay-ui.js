@@ -71,6 +71,7 @@
         requestId = saved.data.request_id;
         sessionStorage.setItem(pendingKey, requestId);
         sessionStorage.setItem(pendingKey+'_fingerprint',fingerprint);
+        window.valoraiaClearDraft?.();
       }
       await uploadIntakeFiles(db,auth.data.session?.user.id,requestId,files,(n,total)=>{status.textContent=`Guardando evidencia ${n}/${total} antes del pago…`;});
       status.textContent='Evidencia guardada. Preparando la liga de pago…';
