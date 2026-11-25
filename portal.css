@@ -228,3 +228,6 @@ body, .landing-page { background: var(--bg); color: var(--ink); }
 .support-link { flex: 0 0 auto; color: var(--accent); font-weight: 750; text-decoration: none; overflow-wrap: anywhere; }
 .support-link:hover, .support-link:focus-visible { text-decoration: underline; }
 @media (max-width: 760px) { .support-note { flex-direction: column; align-items: flex-start; gap: 12px; padding: 18px 20px; } .support-link { font-size: .84rem; } }
+
+/* Campo obligatorio faltante */
+input.field-missing, select.field-missing { border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent2); }

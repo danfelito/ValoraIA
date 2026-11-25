@@ -47,9 +47,18 @@
       const files=fd.getAll('intake_files').filter(file=>file.size);
       validateIntakeFiles(files);
       const land = ['terreno','rancho'].includes(payload.property_type)||(['bodega','industrial'].includes(payload.property_type)&&payload.comparison_area_basis==='land');
-      const area = Number(payload[land ? 'land_area_m2' : 'built_area_m2']);
-      if (!payload.region?.trim() || !payload.municipality?.trim() || !Number.isFinite(area) || area <= 0) {
-        throw new Error('Antes de pagar, completa estado, municipio y la superficie '+(land?'de terreno':'construida')+' mayor a cero.');
+      const areaField = land ? 'land_area_m2' : 'built_area_m2';
+      const area = Number(String(payload[areaField] || '').replace(',', '.'));
+      const missing = [];
+      if (!String(payload.region || '').trim()) missing.push(['region', 'Estado']);
+      if (!String(payload.municipality || '').trim()) missing.push(['municipality', 'Municipio']);
+      if (!Number.isFinite(area) || area <= 0) missing.push([areaField, land ? 'Terreno (m²)' : 'Construcción (m²)']);
+      form.querySelectorAll('.field-missing').forEach(el => el.classList.remove('field-missing'));
+      if (missing.length) {
+        missing.forEach(([name]) => form.elements[name]?.classList.add('field-missing'));
+        const first = form.elements[missing[0][0]];
+        first?.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => first?.focus({ preventScroll: true }), 350);
+        throw new Error('Falta completar: ' + missing.map(m => m[1]).join(', ') + '. Los marcamos en rojo en el formulario.' + (land ? '' : ' Para casas, departamentos y locales se usa la superficie construida.'));
       }
       const auth=await db.auth.getSession();
       const fingerprint=await captureFingerprint(payload,auth.data.session?.user.id);

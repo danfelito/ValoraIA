@@ -167,12 +167,12 @@
             <div class="field"><label>Tipo de inmueble *</label><select name="property_type" required><option value="">Selecciona</option><option value="casa">Casa</option><option value="departamento">Departamento</option><option value="terreno">Terreno</option><option value="local_comercial">Local comercial</option><option value="bodega">Bodega</option><option value="oficina">Oficina</option><option value="rancho">Rancho / finca</option><option value="industrial">Industrial</option><option value="otro">Otro</option></select></div>
             <div class="field"><label>Subtipo o uso</label><input name="property_subtype" placeholder="Ej. residencial, agrícola, ganadero"></div>
             <div class="field full"><label>Dirección completa *</label><input name="address_line" required></div>
-            <div class="field"><label>Estado</label><input name="region"></div>
-            <div class="field"><label>Municipio</label><input name="municipality"></div>
+            <div class="field"><label for="f-region">Estado *</label><input id="f-region" name="region" list="mx-estados" autocomplete="address-level1" placeholder="Ej. Veracruz" required></div>
+            <div class="field"><label for="f-municipality">Municipio *</label><input id="f-municipality" name="municipality" autocomplete="address-level2" placeholder="Ej. Boca del Río" required></div>
             <div class="field"><label>Localidad / colonia</label><input name="locality"></div>
-            <div class="field"><label>Código postal</label><input name="postal_code"></div>
-            <div class="field"><label>Terreno (m²)</label><input name="land_area_m2" type="number" min="0" step="0.01"></div>
-            <div class="field"><label>Construcción (m²)</label><input name="built_area_m2" type="number" min="0" step="0.01"></div>
+            <div class="field"><label>Código postal</label><input name="postal_code" inputmode="numeric" maxlength="5" autocomplete="postal-code"></div>
+            <div class="field"><label for="f-land">Terreno (m²)<span data-req="land"></span></label><input id="f-land" name="land_area_m2" type="number" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="field"><label for="f-built">Construcción (m²)<span data-req="built"></span></label><input id="f-built" name="built_area_m2" type="number" min="0" step="0.01" inputmode="decimal"></div>
             <div class="field full"><label>Base de comparación de bodegas e industriales</label><select name="comparison_area_basis"><option value="auto">Habitual según tipo de inmueble</option><option value="land">Bodegas / industriales: precio total por m² de terreno</option><option value="built">Bodegas / industriales: precio total por m² construido</option></select><small>Usa terreno sólo para bodegas o industriales. Se comparan inmuebles con construcción, conservando las diferencias de oficinas, mezanine y estado.</small></div>
             <div class="field"><label>Recámaras</label><input name="bedrooms" type="number" min="0"></div>
             <div class="field"><label>Baños</label><input name="bathrooms" type="number" min="0" step="0.5"></div>
@@ -195,6 +195,27 @@
       <section id="upload" class="card hidden upload-card"></section>`;
 
     document.getElementById('request').onsubmit = submit;
+    document.getElementById('request').insertAdjacentHTML('beforeend', '<datalist id="mx-estados"><option value="Aguascalientes"><option value="Baja California"><option value="Baja California Sur"><option value="Campeche"><option value="Chiapas"><option value="Chihuahua"><option value="Ciudad de México"><option value="Coahuila"><option value="Colima"><option value="Durango"><option value="Estado de México"><option value="Guanajuato"><option value="Guerrero"><option value="Hidalgo"><option value="Jalisco"><option value="Michoacán"><option value="Morelos"><option value="Nayarit"><option value="Nuevo León"><option value="Oaxaca"><option value="Puebla"><option value="Querétaro"><option value="Quintana Roo"><option value="San Luis Potosí"><option value="Sinaloa"><option value="Sonora"><option value="Tabasco"><option value="Tamaulipas"><option value="Tlaxcala"><option value="Veracruz"><option value="Yucatán"><option value="Zacatecas"></datalist>');
+    wireAreaRequirement();
+  }
+
+  // La superficie obligatoria depende del tipo de inmueble: terreno para terrenos y ranchos
+  // (y bodegas/industriales comparados por terreno); construcción para todo lo demás.
+  function wireAreaRequirement() {
+    const form = document.getElementById('request');
+    const type = form.elements.property_type, basis = form.elements.comparison_area_basis;
+    const update = () => {
+      const t = type.value;
+      const land = ['terreno', 'rancho'].includes(t) || (['bodega', 'industrial'].includes(t) && basis.value === 'land');
+      const needs = service === 'commercial' && t !== '';
+      form.elements.land_area_m2.required = needs && land;
+      form.elements.built_area_m2.required = needs && !land;
+      form.querySelector('[data-req="land"]').textContent = needs && land ? ' *' : '';
+      form.querySelector('[data-req="built"]').textContent = needs && !land ? ' *' : '';
+      if (needs) (land ? form.elements.land_area_m2 : form.elements.built_area_m2).min = '0.01';
+    };
+    type.addEventListener('change', update); basis.addEventListener('change', update); update();
+    form.addEventListener('input', (e) => e.target.classList?.remove('field-missing'));
   }
 
   async function submit(event) {
