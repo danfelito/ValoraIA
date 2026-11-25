@@ -220,3 +220,11 @@ body, .landing-page { background: var(--bg); color: var(--ink); }
 .path-number, .status-icon { background: var(--accent2); color: var(--accent); }
 .panel-case-row { background: #151515; }
 .brand-logo { display: block; width: clamp(150px, 18vw, 190px); height: auto; flex: none; }
+
+/* Soporte (landing) */
+.support-note { display: flex; justify-content: space-between; align-items: center; gap: 20px; max-width: 980px; margin: 16px auto 0; padding: 18px 28px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); }
+.support-note strong { display: block; font-size: 1rem; }
+.support-note p { margin: 4px 0 0; color: var(--muted); font-size: .92rem; line-height: 1.5; }
+.support-link { flex: 0 0 auto; color: var(--accent); font-weight: 750; text-decoration: none; overflow-wrap: anywhere; }
+.support-link:hover, .support-link:focus-visible { text-decoration: underline; }
+@media (max-width: 760px) { .support-note { flex-direction: column; align-items: flex-start; gap: 12px; padding: 18px 20px; } .support-link { font-size: .84rem; } }
