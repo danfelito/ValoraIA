@@ -236,7 +236,7 @@
       if (!el.name || el.disabled || el.type === 'hidden' || el.closest('.hidden')) continue;
       const empty = el.type === 'checkbox' ? (el.required && !el.checked) : (el.required && !String(el.value).trim());
       if (empty || (el.validity && !el.validity.valid)) {
-        const label = (el.closest('.field')?.querySelector('label') || el.closest('.check')?.querySelector('label'))?.textContent || el.name;
+        const label = el.type === 'checkbox' && el.name === 'privacy_accepted' ? 'Casilla de aceptación de privacidad' : ((el.closest('.field')?.querySelector('label') || el.closest('.check')?.querySelector('label'))?.textContent || el.name);
         bad.push({ el, label: label.replace(/\*/g, '').replace(/\s+/g, ' ').trim().slice(0, 70), why: el.validity?.badInput || el.validity?.rangeUnderflow || el.validity?.typeMismatch ? 'revisa el formato' : '' });
       }
     }
