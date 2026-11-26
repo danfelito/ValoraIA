@@ -26,7 +26,7 @@
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     let source = new TextDecoder().decode(bytes);
 
-    const redirectUrl = 'https://valoraia.onrender.com/cuenta.html';
+    const redirectUrl = location.origin + '/cuenta.html';
 
     // Todos los correos de confirmación regresan al dominio público de producción.
     source = source.replace(

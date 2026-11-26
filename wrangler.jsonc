@@ -1,0 +1,12 @@
+// ValoraIA en Cloudflare Workers (archivos estáticos). El motor sigue en Supabase.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "valoraia",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": ".",
+    // Las direcciones con .html se conservan tal cual (Openpay y Supabase regresan a ellas).
+    "html_handling": "none",
+    "not_found_handling": "single-page-application"
+  }
+}

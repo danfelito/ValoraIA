@@ -1,0 +1,19 @@
+# Archivos internos que no se publican en el sitio
+.git
+.github
+node_modules
+supabase
+tests
+docs
+scripts
+*.md
+.env*
+wrangler.jsonc
+render.yaml
+package.json
+package-lock.json
+.assetsignore
+_harness.html
+.wrangler
+.gitignore
+.dev.vars

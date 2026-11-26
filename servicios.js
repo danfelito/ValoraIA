@@ -14,7 +14,7 @@
 
   const requestedType = new URLSearchParams(window.location.search).get('tipo');
   const service = requestedType === 'profesional' ? 'professional' : 'commercial';
-  const redirectUrl = `https://valoraia.onrender.com/servicios.html?tipo=${service === 'professional' ? 'profesional' : 'comercial'}`;
+  const redirectUrl = `${location.origin}/servicios.html?tipo=${service === 'professional' ? 'profesional' : 'comercial'}`;
 
   let session = null;
   let last = null;

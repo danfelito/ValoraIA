@@ -1,6 +1,7 @@
 // Textos de los avisos por correo. Sin dependencias: se prueba con node --test.
 type Row = Record<string, any>;
-const SITE = "https://valoraia.onrender.com";
+// Dirección pública del sitio: secreto VALORAIA_PUBLIC_URL en Supabase.
+const SITE = ((globalThis as any).Deno?.env?.get?.("VALORAIA_PUBLIC_URL") || "https://valoraia.onrender.com").replace(/\/$/, "");
 const SUPPORT = "contacto@circulointernacionalveracruz.org";
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 const firstName = (name: unknown) => String(name || "").trim().split(/\s+/)[0] || "";
