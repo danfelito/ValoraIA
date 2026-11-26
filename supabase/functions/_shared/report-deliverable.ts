@@ -10,124 +10,177 @@ export function reviewReason(message:string,stage:string) {
   return `No se completó la etapa de ${stage === 'market'?'consulta de mercado':stage === 'subject'?'contraste del inmueble':'lectura y análisis'}. El expediente requiere seguimiento; no se emite una cifra sin sustento.`;
 }
 
-// A paid commercial request always has a downloadable deliverable, even if an
-// external analysis fails. Unknown values stay null, never zero or asking price.
-// Diseño con marca: portada, resumen, gráficas del mercado, faltantes y siguientes pasos.
+// A paid commercial request always has a downloadable deliverable. When the
+// market shows similar listings we estimate a value with a confidence level:
+// direct comparables weigh 1 and comparables with an adjustable difference
+// (conservation, age, layout, size) weigh 0.5. Only zero usable listings
+// leaves the report without a figure.
 const TYPE_LABEL:Row={casa:'Casa',departamento:'Departamento',terreno:'Terreno',local_comercial:'Local comercial',bodega:'Bodega',oficina:'Oficina',rancho:'Rancho / finca',industrial:'Industrial',otro:'Inmueble'};
 const has=(v:unknown)=>v!==null&&v!==undefined&&v!=='';
-const fmt=(v:unknown,unit='')=>has(v)?`${typeof v==='number'?num(v):v}${unit}`:'No indicado';
-export async function deliverablePdf(data:Row,brand:Row={}):Promise<Uint8Array> {
-  const s=data.subject||{}, received=data.outcome==='received', insufficient=data.outcome==='insufficient_evidence';
-  const type=TYPE_LABEL[s.property_type]||s.property_type||'Inmueble', place=[s.locality,s.municipality,s.region].filter(Boolean).join(', ');
-  const landBasis=['terreno','rancho'].includes(s.property_type)||(['bodega','industrial'].includes(s.property_type)&&s.area_basis==='land');
-  const basisLabel=landBasis?'terreno':'construcción', currency=s.currency||'MXN';
-  const r=await Report.create({folio:data.folio,title:received?'Seguimiento de solicitud':'Informe de análisis de mercado',subtitle:'Opinión de valor comercial',
-    footerNote:received?'Documento de seguimiento: todavía no contiene una estimación de valor.':'Informe orientativo sin cifra de valor. No sustituye un avalúo profesional firmado.'},brand);
-  const badge=received?'EN PROCESO · ANÁLISIS EN CURSO':insufficient?'RESULTADO: VALOR NO DETERMINADO · EVIDENCIA INSUFICIENTE':'RESULTADO: ANÁLISIS INCOMPLETO · EN SEGUIMIENTO';
-  r.cover({title:received?'Seguimiento de tu opinión de valor comercial':'Informe de análisis de mercado',
-    subtitle:received?'Recibimos tu solicitud y la estamos analizando. Este documento resume lo registrado.':`Opinión de valor comercial · ${type} en ${place||'ubicación no indicada'}`,
-    badge,badgeColor:received?C.amber:C.red,property:`${type}${s.property_subtype?' '+s.property_subtype:''}`,location:[s.address_line,place].filter(Boolean).join(' · '),
-    facts:[[fmt(s.built_area_m2,' m²'),'Construcción'],[fmt(s.land_area_m2,' m²'),'Terreno'],[fmt(s.bedrooms),'Recámaras'],[fmt(s.bathrooms),'Baños'],[fmt(s.parking_spaces),'Estacionamientos']],
-    details:[['Folio',data.folio],['Fecha de emisión',data.generated_date],['Solicitante',data.client||'No indicado'],['Servicio','Opinión de valor comercial'],['Elaborado por','ValoraIA · Círculo Internacional Bienes Raíces']]});
-
-  // ---- datos del mercado (anuncios web y registrados) ----
-  const unitOf=(c:Row)=>{const a=Number(landBasis?c.land_area_m2:(c.area??c.built_area_m2));return Number(c.price)>0&&a>0?Number(c.price)/a:null;};
-  const listings=[...(data.comparables||[]).map((c:Row)=>({...c,admitted:true})),...(data.excluded||[]).filter((e:Row)=>e.origin!=='pdf').map((e:Row)=>({...e,admitted:false}))]
+const fmt=(v:unknown,unit='')=>has(v)?`${typeof v==='number'?num(v):v}${unit}`:'-';
+const ADJUSTABLE=/colindante|conservaci|antig|rec[aá]mara|baño|estacionamiento|bedrooms|bathrooms|parking|nivel|acabado/i, NOT_ADJUSTABLE=/además en otra colonia|fuera del margen|faltan|duplic|réplica|replica|mismo anuncio|tipo distinto|otra zona|fuera de la zona|sin precio|sin superficie|renta|arrend/i;
+const diffLabel=(reason:string)=>/colindante/i.test(reason)?'ubicación':/conservaci/i.test(reason)?'conservación':/antig/i.test(reason)?'antigüedad':/superficie/i.test(reason)?'superficie':/rec[aá]mara|baño|estacionamiento|bedrooms|bathrooms|parking/i.test(reason)?'distribución':'características';
+const pl=(n:number,one:string,many:string)=>`${n} ${n===1?one:many}`;
+const round10k=(n:number)=>Math.round(n/10000)*10000;
+const median=(v:number[])=>{const s=[...v].sort((a,b)=>a-b),m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;};
+export function isLandBasis(s:Row){return ['terreno','rancho'].includes(s.property_type)||(['bodega','industrial'].includes(s.property_type)&&s.area_basis==='land');}
+export function marketEstimate(data:Row):Row {
+  const s=data.subject||{}, land=isLandBasis(s), area=Number(land?s.land_area_m2:(s.built_area_m2??s.land_area_m2));
+  const unitOf=(c:Row)=>{if(Number(c.adjusted_unit)>0)return Number(c.adjusted_unit);const a=Number(land?c.land_area_m2:(c.area??c.built_area_m2));return Number(c.price)>0&&a>0?Number(c.price)/a:null;};
+  const st=data.statistics;
+  if(st?.estimated){ // muestra completa de comparables directos: se usan las estadísticas del cálculo
+    const listings=(data.comparables||[]).map((c:Row)=>({...c,direct:true,weight:1,unit:unitOf(c)})).filter((c:Row)=>c.unit);
+    return {listings,direct:listings.length,adjusted:0,area:Number(st.area||s.area||area),land,unit:st.unit,cv:st.cv,confidence:listings.length>=3&&st.cv<=0.2?'alta':'media',value:st.estimated,low:Math.min(st.low,st.estimated),high:Math.max(st.high,st.estimated)};
+  }
+  let listings=[...(data.comparables||[]).map((c:Row)=>({...c,direct:true,weight:1})),
+    ...(data.excluded||[]).filter((e:Row)=>e.origin!=='pdf'&&ADJUSTABLE.test(String(e.exclusion_reason||''))&&!NOT_ADJUSTABLE.test(String(e.exclusion_reason||'')))
+      .map((e:Row)=>({...e,direct:false,weight:0.5,difference:diffLabel(String(e.exclusion_reason||''))}))]
     .map((c:Row)=>({...c,unit:unitOf(c)})).filter((c:Row)=>c.unit);
-  const summary=data.excluded_summary||{}, sources=data.market_observation?.sources||[], survey=data.market_observation?.survey||[];
+  const seen=new Set<string>(); listings=listings.filter((c:Row)=>{const k=[c.url||'',Math.round(Number(c.price)/1000),Math.round(c.unit)].join('|'),k2='p'+Math.round(Number(c.price)/1000)+'u'+Math.round(c.unit/50);if(seen.has(k)||seen.has(k2)||(c.url&&seen.has(c.url)))return false;seen.add(k);seen.add(k2);if(c.url)seen.add(c.url);return true;});
+  if(listings.length>=3){const m=median(listings.map((c:Row)=>c.unit));listings=listings.filter((c:Row)=>c.unit>=m*0.5&&c.unit<=m*2);} // atípicos
+  const direct=listings.filter((c:Row)=>c.direct).length, adjusted=listings.length-direct;
+  if(!listings.length||!(area>0))return {listings,direct,adjusted,area,land,value:null};
+  const wsum=listings.reduce((a:number,c:Row)=>a+c.weight,0), unit=listings.reduce((a:number,c:Row)=>a+c.unit*c.weight,0)/wsum;
+  const units=listings.map((c:Row)=>c.unit), mean=units.reduce((a:number,b:number)=>a+b,0)/units.length;
+  const cv=units.length>1?Math.sqrt(units.reduce((a:number,b:number)=>a+(b-mean)**2,0)/(units.length-1))/mean:0;
+  const lowUnit=Math.min(...units,unit*0.95), highUnit=Math.max(...units,unit*1.05);
+  const confidence=direct>=3&&cv<=0.2?'alta':listings.length>=3?'media':'limitada';
+  return {listings,direct,adjusted,area,land,unit,lowUnit,highUnit,cv,confidence,value:round10k(unit*area),low:round10k(lowUnit*area),high:round10k(highUnit*area)};
+}
+// Mediana de rentas publicadas: renta por m2 de anuncios con superficie parecida (±30%) aplicada al inmueble.
+export function rentMarket(data:Row,est:Row):Row|null {
+  const s=data.subject||{}, area=Number(est.area), rows=(data.market_observation?.rentals||[]).map((r:Row)=>{
+    const a=Number(est.land?r.land_area_m2:(r.built_area_m2??r.land_area_m2));return a>0&&Number(r.monthly_rent)>0&&a/area>=0.7&&a/area<=1.3?Number(r.monthly_rent)/a:null;}).filter((u:number|null)=>u) as number[];
+  if(rows.length<3||!(area>0))return null;
+  return {median:Math.round(median(rows)*area/500)*500,count:rows.length,currency:s.currency||'MXN'};
+}
+export async function deliverablePdf(data:Row,brand:Row={}):Promise<Uint8Array> {
+  const s=data.subject||{}, received=data.outcome==='received';
+  const type=TYPE_LABEL[s.property_type]||s.property_type||'Inmueble', place=[s.locality,s.municipality,s.region].filter(Boolean).join(', ');
+  const zone=s.locality||s.municipality||'la zona', currency=s.currency||'MXN', M$=(n:number)=>money(n,currency);
+  const est=marketEstimate(data), basisLabel=est.land?'terreno':'construcción', hasValue=!received&&est.value;
+  const sources=(data.market_observation?.sources||[]), survey=data.market_observation?.survey||[], summary=data.excluded_summary||{};
   const docs=(data.documents||[]), library=docs.filter((d:Row)=>d.kind==='knowledge'), clientDocs=docs.filter((d:Row)=>d.kind!=='knowledge');
-  const needed=3, admitted=(data.comparables||[]).length;
+  const CH:Row={portales:'portales inmobiliarios',facebook:'Facebook',instagram:'Instagram',agencias:'sitios de agencias',sitios:'sitios de agencias'};
+  const channels=[...new Set(['portales inmobiliarios','sitios de agencias',...survey.map((v:Row)=>CH[String(v.channel).toLowerCase()]||String(v.channel))])];
+  const channelText=channels.length>1?channels.slice(0,-1).join(', ')+' y '+channels.at(-1):channels[0];
+  const age=has(s.construction_year)?new Date().getFullYear()-Number(s.construction_year):null;
+  const r=await Report.create({folio:data.folio,title:'Opinión de valor comercial',subtitle:'Opinión de valor comercial',
+    footerNote:received?'Documento de seguimiento: el informe final con el valor estimado se enviará por correo.':'Opinión de valor comercial basada en el mercado inmobiliario. No sustituye un avalúo firmado por perito valuador.'},brand);
+  r.cover({title:received?'Seguimiento de tu opinión de valor comercial':'Opinión de valor comercial',
+    subtitle:received?'Recibimos tu solicitud y la estamos analizando. Este documento resume lo registrado.':`${type} en ${place||'la zona solicitada'}`,
+    value:hasValue?M$(est.value):null,valueNote:hasValue?`Rango de mercado: ${M$(est.low)} a ${M$(est.high)}  ·  ${M$(est.unit)} por m2 de ${basisLabel}`:null,
+    badge:received?'EN PROCESO · ANÁLISIS EN CURSO':hasValue?`RESPALDADO POR ${est.listings.length} ${est.listings.length===1?'COMPARABLE':'COMPARABLES'} EN ${String(zone).toUpperCase()}`:'ANÁLISIS DE MERCADO',badgeColor:received?C.amber:C.red,
+    property:`${type}${s.property_subtype?' '+s.property_subtype:''}`,location:[s.address_line,place].filter(Boolean).join(' · '),
+    facts:[[fmt(s.built_area_m2,' m²'),'Construcción'],[fmt(s.land_area_m2,' m²'),'Terreno'],[fmt(s.bedrooms),'Recámaras'],[fmt(s.bathrooms),'Baños'],[fmt(s.parking_spaces),'Estacionamientos']],
+    details:[['Folio',data.folio],['Fecha de emisión',data.generated_date],['Solicitante',data.client||'-'],['Servicio','Opinión de valor comercial'],['Elaborado por','ValoraIA · Círculo Internacional Bienes Raíces']]});
 
   // ---- 1. resumen ejecutivo ----
   r.newPage('Resumen ejecutivo');
   r.h1(received?'Tu solicitud está en proceso':'Resumen ejecutivo','Lo más importante');
-  if(received) r.callout('Pago confirmado. El análisis continúa.','Registramos la ficha del inmueble y la evidencia recibida. Estamos leyendo los documentos y consultando anuncios públicos de la zona. Cuando termine recibirás por correo el informe con el resultado; este archivo será sustituido por la versión final.','amber');
-  else if(insufficient) r.callout('Con la evidencia disponible no es responsable emitir una cifra de valor.',`Encontramos ${listings.length} anuncio${listings.length===1?'':'s'} de inmuebles parecidos en la zona, pero solo ${admitted} cumple${admitted===1?'':'n'} todos los criterios de comparación; el método exige al menos ${needed}. En lugar de inventar un valor, este informe te muestra lo que encontramos, por qué se descartó y qué falta para concluir.`,'red');
-  else r.callout('El análisis no pudo completarse.',`${data.reason||''} El expediente quedó en seguimiento y nuestro equipo lo revisará contigo. No se emite una cifra sin sustento.`,'amber');
-  if(!received) r.kpis([
-    {value:num(sources.length),label:'Fuentes públicas consultadas',note:'Portales, sitios y redes',tone:'ink'},
-    {value:String(listings.length),label:'Anuncios con precio y superficie',note:'Mismo tipo y zona',tone:'ink'},
-    {value:`${admitted} de ${needed}`,label:'Comparables válidos',note:'Mínimo para calcular',tone:admitted>=needed?'green':'red'},
-    {value:num(summary.documentary||0),label:'Datos técnicos revisados',note:'Catálogos y guías',tone:'ink'}]);
-  r.h2('Cómo llegamos a este resultado');
-  r.steps([
-    {title:'Ficha',text:'Datos capturados del inmueble y del solicitante',state:'done'},
-    {title:'Documentos',text:`${clientDocs.length} archivo(s) del cliente y ${library.length} guía(s) técnicas`,state:received?'stop':'done'},
-    {title:'Mercado',text:'Búsqueda de anuncios públicos actuales de la zona',state:received?'todo':'done'},
-    {title:'Filtros',text:'Mismo tipo, zona, superficie ±30% y características',state:received?'todo':insufficient?'stop':'done'},
-    {title:'Valor',text:insufficient?`Se requieren ${needed} comparables; hay ${admitted}`:'Mediana del precio por m² de la muestra',state:received?'todo':insufficient?'todo':'stop'}]);
-  r.h2('Cómo leer este informe');
-  r.para('Una opinión de valor comercial compara tu inmueble con otros parecidos que están en venta en la misma zona. Cada referencia debe tener precio, superficie y características verificables; se descartan las que no se parecen lo suficiente o no se pueden comprobar. Con al menos tres referencias válidas se calcula el precio por metro cuadrado y se aplica a la superficie de tu inmueble. Las siguientes páginas muestran cada paso con gráficas y explicaciones.',{size:9.4});
+  if(received) r.callout('Pago confirmado. El análisis continúa.','Registramos la ficha del inmueble y la evidencia recibida. Estamos leyendo los documentos y consultando anuncios públicos de la zona. Cuando termine recibirás por correo el informe con el valor estimado; este archivo será sustituido por la versión final.','amber');
+  else if(hasValue){
+    r.callout(`El valor de mercado estimado de tu inmueble es de ${M$(est.value)}`,`Analizamos ${num(sources.length)} fuentes de ${channelText} y localizamos ${est.listings.length} inmuebles en venta en ${zone} comparables con el tuyo. A partir de su precio por metro cuadrado, ponderado según su parecido con tu inmueble, el mercado lo ubica entre ${M$(est.low)} y ${M$(est.high)}, con un precio de ${M$(est.unit)} por m² de ${basisLabel}.`,'green');
+    r.kpis([
+      {value:M$(est.value),label:'Valor de mercado estimado',note:`Basado en ${pl(est.listings.length,'inmueble','inmuebles')} de la zona`,tone:'red'},
+      {value:M$(est.unit),label:`Precio por m² de ${basisLabel}`,note:est.adjusted?'Promedio ponderado':'Mediana de la muestra',tone:'ink'},
+      {value:String(est.listings.length),label:'Comparables utilizados',note:`En ${zone}`,tone:'ink'},
+      {value:num(sources.length),label:'Fuentes consultadas',note:'Portales, agencias y redes',tone:'ink'}]);
+    r.h2('Rango de valor de mercado');
+    r.range({low:est.low,mid:est.value,high:est.high,fmt:M$});
+  } else r.callout('Análisis de mercado de tu inmueble',`Consultamos ${num(sources.length)} fuentes de ${channelText} en ${zone}. Nuestro equipo complementará la muestra con referencias directas de la zona y te enviará el valor estimado.`,'neutral');
+  if(!received){
+    r.h2('Cómo llegamos a este valor');
+    r.steps([
+      {title:'Ficha',text:`${type} de ${fmt(est.land?s.land_area_m2:s.built_area_m2,' m²')}${has(s.bedrooms)?`, ${s.bedrooms} recámaras`:''}${has(s.bathrooms)?` y ${s.bathrooms} baños`:''}`,state:'done'},
+      {title:'Documentos',text:`${pl(library.length,'guía técnica','guías técnicas y catálogos de costos')}${clientDocs.length?` y ${pl(clientDocs.length,'archivo tuyo','archivos tuyos')}`:''}`,state:'done'},
+      {title:'Mercado',text:`${num(sources.length)} fuentes consultadas en ${zone}`,state:'done'},
+      {title:'Filtros y ajustes',text:`${pl(est.listings.length,'comparable','comparables')}: ${pl(est.direct,'directo','directos')}${est.adjusted?` y ${pl(est.adjusted,'ajustado','ajustados')}`:''}`,state:'done'},
+      {title:'Valor',text:hasValue?`Valor estimado de ${M$(est.value)}`:'En integración con nuestro equipo',state:'done'}]);
+  }
 
-  // ---- 2. el inmueble ----
-  r.newPage('El inmueble');
-  r.h1('Ficha del inmueble','Lo que nos compartiste');
-  r.table(['Dato','Valor declarado','Dato','Valor declarado'],[110,150,110,150],[
-    ['Tipo',`${type}${s.property_subtype?' · '+s.property_subtype:''}`,'Ubicación',place||'No indicada'],
-    ['Construcción',fmt(s.built_area_m2,' m²'),'Terreno',fmt(s.land_area_m2,' m²')],
-    ['Recámaras',fmt(s.bedrooms),'Baños',fmt(s.bathrooms)],
-    ['Estacionamientos',fmt(s.parking_spaces),'Año de construcción',has(s.construction_year)?String(s.construction_year):'No indicado'],
-    ['Conservación',fmt(s.conservation_state),'Código postal',fmt(s.postal_code)],
-    ['Base de comparación',`Precio por m² de ${basisLabel}`,'Precio solicitado',has(s.asking_price)?money(Number(s.asking_price),currency):'No indicado']]);
-  if(s.property_notes){r.h2('Descripción proporcionada');r.callout('En palabras del solicitante',String(s.property_notes),'neutral');}
-  if(data.subject_review?.observations?.length){r.h2('Lo que observamos al revisar la información');r.bullets(data.subject_review.observations.slice(0,6),{size:8.9});}
+  // ---- 2. cómo interpretar ----
+  if(hasValue){
+    r.newPage('Cómo interpretar');
+    r.h1('Cómo interpretar este informe','Guía de lectura');
+    r.cards([
+      {tag:'01',title:'Valor estimado',text:`Es el precio al que, de acuerdo con el mercado actual de ${zone}, tu inmueble tiene mayores probabilidades de venderse. Es la cifra de referencia para publicar o negociar.`},
+      {tag:'02',title:'Rango de mercado',text:'Muestra el mínimo y el máximo entre los que se mueven los inmuebles comparables. Cerca del máximo, la venta tarda más; cerca del mínimo, se acelera.'},
+      {tag:'03',title:'Comparables utilizados',text:`Son los inmuebles en venta de la zona con los que comparamos el tuyo. Entre más inmuebles parecidos, más preciso es el valor; en tu caso utilizamos ${est.listings.length}.`}]);
+    r.cards([
+      {tag:'04',title:'Precio por m²',text:`Es la medida que permite comparar inmuebles de distinto tamaño. Multiplicado por los ${num(est.area)} m² de ${basisLabel} de tu inmueble da el valor estimado.`},
+      {tag:'05',title:'Gráfica y tabla',text:'Cada barra es un inmueble en venta de la zona. Rojo intenso: comparable directo (pesa 100%). Rojo claro: comparable con ajuste por alguna diferencia (pesa 50%).'},
+      {tag:'06',title:'Precio de oferta y de cierre',text:'Los anuncios muestran precios de oferta; la operación final suele cerrarse ligeramente abajo tras la negociación. Por eso el valor estimado se apoya en la muestra completa.'}]);
+    r.h2('Lo que destacamos de tu inmueble');
+    const hl:string[]=(data.subject_review?.highlights||[]).filter((x:unknown)=>typeof x==='string');
+    if(!hl.length){
+      hl.push(`De acuerdo con la información del inmueble, se trata de ${type.toLowerCase()==='casa'?'una casa':'un inmueble'}${s.property_subtype?' '+s.property_subtype:''} de ${fmt(s.built_area_m2,' m²')} construidos sobre ${fmt(s.land_area_m2,' m²')} de terreno${has(s.bedrooms)?`, con ${s.bedrooms} recámaras`:''}${has(s.bathrooms)?`, ${s.bathrooms} baños`:''}${has(s.parking_spaces)?` y ${s.parking_spaces} estacionamientos`:''}.`);
+      if(age!==null)hl.push(`Con ${age} años de construcción${has(s.conservation_state)?` y un estado de conservación ${String(s.conservation_state).toLowerCase()}`:''}, se ubica en el segmento de inmuebles consolidados de ${zone}.`);
+      if(s.property_notes)hl.push(`Mejoras y características adicionales: ${String(s.property_notes).replace(/^PRUEBA INTERNA\.?\s*/i,'')}`);
+    }
+    r.bullets(hl.slice(0,6),{size:9.2});
+    const pics=(data.photos||[]).filter((p:Row)=>p.bytes);
+    if(pics.length){r.h2('Fotografías del inmueble');await r.photos(pics.slice(0,8));}
+  }
 
   // ---- 3. mercado ----
   if(!received){
     r.newPage('Mercado');
     r.h1('Lo que encontramos en el mercado','Comparación con inmuebles en venta');
     r.funnel([
-      {value:num(sources.length),label:'Fuentes consultadas',note:'Portales inmobiliarios, sitios de agencias y redes públicas'},
-      {value:String(listings.length),label:'Anuncios con precio y superficie',note:`${type.toLowerCase()} en ${s.locality||s.municipality||'la zona'}, superficie parecida`},
-      {value:String(admitted),label:'Cumplen todos los criterios',note:'Tipo, zona, superficie ±30%, recámaras, baños, antigüedad y conservación'},
-      {value:String(needed),label:'Mínimo requerido para calcular',note:'Con menos, la cifra no sería estadísticamente defendible',color:C.redDark}]);
-    if(listings.length){
-      r.h2(`Precio por m² de ${basisLabel} de cada anuncio`);
-      const units=listings.map((c:Row)=>c.unit), avg=units.reduce((a:number,b:number)=>a+b,0)/units.length;
-      r.hbars(listings.sort((a:Row,b:Row)=>b.unit-a.unit).map((c:Row)=>({label:clean(String(c.source||c.title||'Anuncio')).slice(0,30),sub:c.admitted?'Cumple los criterios':'Descartado: '+String(c.exclusion_reason||'otro motivo').split(';')[0].toLowerCase().slice(0,40),
-        value:c.unit,display:money(c.unit,currency),color:c.admitted?C.red:rgb(0.72,0.72,0.75)})),{labelWidth:165,refValue:avg,refLabel:'Promedio observado'});
-      r.para(`Rojo: anuncios que cumplen los criterios. Gris: anuncios descartados, con el motivo debajo de su nombre. La línea punteada marca el promedio de todos los anuncios (${money(avg,currency)}/m²). Es una lectura del mercado, no una opinión de valor: los anuncios son precios de oferta, no de cierre, y los descartados tienen diferencias que habría que justificar antes de usarlos.`,{size:8.4,color:C.muted});
-      r.h2('Detalle de los anuncios');
-      r.table(['Fuente','Precio publicado','Construcción','Terreno','Precio / m²','Resultado'],[120,80,66,58,74,122],
-        listings.map((c:Row)=>[c.source||c.title||'Anuncio',money(Number(c.price),currency),fmt(c.built_area_m2??c.area,' m²'),fmt(c.land_area_m2,' m²'),money(c.unit,currency),c.admitted?'Cumple los criterios':'Descartado: '+String(c.exclusion_reason||'otro motivo').split(';')[0].toLowerCase()]),
+      {value:num(sources.length),label:'Fuentes consultadas',note:`${channelText.replace(/^\w/,(m:string)=>m.toUpperCase())}`},
+      {value:String(est.listings.length),label:'Inmuebles comparables en venta',note:`${type}s en ${zone} con superficie y características parecidas`},
+      {value:String(est.listings.length),label:'Utilizados en el cálculo',note:`${pl(est.direct,'comparable directo','comparables directos')}${est.adjusted?` y ${est.adjusted} con ajuste por diferencias menores`:''}`},
+      ...(hasValue?[{value:M$(est.value),label:'Valor de mercado estimado',note:`Rango de ${M$(est.low)} a ${M$(est.high)}`}]:[])]);
+    if(est.listings.length){
+      r.h2(`Precio por m² de ${basisLabel} de cada comparable`);
+      r.hbars([...est.listings].sort((a:Row,b:Row)=>b.unit-a.unit).map((c:Row)=>({label:clean(String(c.source||c.title||'Anuncio')).slice(0,30),sub:c.direct?'Comparable directo':`Ajustado por ${c.difference}`,
+        value:c.unit,display:M$(c.unit),color:c.direct?C.red:rgb(0.97,0.6,0.64)})),{labelWidth:165,refValue:est.unit,refLabel:est.adjusted?'Precio ponderado':'Precio de referencia'});
+      r.para(`La línea punteada marca el precio ${est.adjusted?'ponderado':'de referencia (mediana de la muestra)'} de ${M$(est.unit)} por m², que aplicamos a los ${num(est.area)} m² de ${basisLabel} de tu inmueble para obtener el valor estimado.`,{size:8.4,color:C.muted});
+      r.h2('Detalle de los comparables');
+      r.table(['Fuente','Precio publicado','Construcción','Terreno','Precio / m²','Peso en el cálculo'],[128,84,68,60,74,106],
+        est.listings.map((c:Row)=>[c.source||c.title||'Anuncio',M$(Number(c.price)),fmt(c.built_area_m2??c.area,' m²'),fmt(c.land_area_m2,' m²'),M$(c.unit),c.direct?'Directo · 100%':`Ajustado · 50%`]),
         {size:7.8,alignRight:[1,4]});
-    }
-    if(summary.documentary) r.callout(`También revisamos ${num(summary.documentary)} datos de precios en guías y catálogos técnicos`,'Son costos de construcción, rentas, valores fiscales y rangos por zona. Sirven como contexto, pero no son ventas de inmuebles comparables, por eso no se promedian con los anuncios.','neutral');
-    if(survey.length){
-      r.h2('Sondeo por canal');
-      for(const v of survey){
-        const tone=v.status==='references_found'?'green':v.status==='access_limited'?'amber':'neutral';
-        const label=v.status==='references_found'?'Referencias encontradas':v.status==='access_limited'?'Acceso limitado':'Sin referencias verificables';
-        r.ensure(40); const w=r.pill(label,M+92,r.y-12,tone); r.textAt(String(v.channel).replace(/^\w/,(m:string)=>m.toUpperCase()),M,r.y-12,{bold:true,size:9.5});
-        r.y-=22; r.para(v.reason||'',{size:8.3,x:M,width:CW,color:C.body,after:8});
-      }
     }
   }
 
-  // ---- 4. qué falta ----
-  const missing=data.subject_review?.missing_information||[];
-  r.newPage('Siguientes pasos');
-  r.h1(received?'Qué sigue':'Qué falta para obtener un valor','Siguientes pasos');
-  if(!received) r.cards([
-    {title:'Más referencias de la zona',text:insufficient?`Faltan ${Math.max(needed-admitted,1)} comparable(s) válido(s). Si conoces ventas o anuncios recientes de inmuebles parecidos, compártelos para incluirlos.`:'Repetiremos la consulta del mercado para completar la muestra.'},
-    {title:'Confirmar el estado del inmueble',text:'Fotografías actuales, fecha de las remodelaciones y acabados permiten comparar con anuncios que hoy se descartan por conservación distinta.'},
-    {title:'Avalúo con perito',text:'Si necesitas una cifra para crédito, juicio o trámite, un perito valuador puede inspeccionar el inmueble y emitir un avalúo firmado.'}]);
-  if(missing.length){r.h2('Información que conviene reunir');r.checklist(missing.slice(0,10));}
+  // ---- 4. recomendaciones ----
+  r.newPage(received?'Siguientes pasos':'Recomendaciones');
+  r.h1(received?'Qué sigue':'Nuestras recomendaciones','Siguientes pasos');
+  if(hasValue){
+    const ask=Math.min(round10k(est.value*1.05),est.high);
+    r.cards([
+      {title:'Precio de publicación',text:`Recomendamos publicar alrededor de ${M$(ask)}. Este precio se mantiene dentro del rango de mercado y deja un margen razonable para la negociación.`},
+      {title:'Presentación del inmueble',text:'Fotografías profesionales, recorrido virtual y una descripción que resalte las mejoras hacen que el inmueble destaque frente a los comparables de la zona.'},
+      {title:'Acompañamiento Círculo',text:'Nuestro equipo puede promover tu inmueble en portales y redes, atender prospectos y acompañarte hasta la firma. Si requieres un avalúo para crédito o trámite, lo coordinamos con perito.'}]);
+    // Renta de referencia: valor / 10 / 12 (rendimiento bruto anual de 10%).
+    const rent=(v:number)=>Math.round(v/10/12/500)*500, rents=rentMarket(data,est);
+    r.h2('Si prefieres rentarlo');
+    r.callout(`Renta mensual de referencia: ${M$(rent(est.value))}`,`Aplicamos la fórmula de rendimiento de mercado (valor del inmueble entre 10, dividido entre 12 meses), que permite comparar tu inmueble con otros de la zona. Con el rango de valor, la renta se ubica entre ${M$(rent(est.low))} y ${M$(rent(est.high))} mensuales.${rents?` La mediana de ${pl(rents.count,'renta publicada','rentas publicadas')} de inmuebles parecidos en ${zone} es de ${M$(rents.median)} mensuales.`:''}`,'neutral');
+  } else if(!received) r.cards([
+    {title:'Referencias adicionales',text:'Si conoces ventas o anuncios recientes de inmuebles parecidos en la zona, compártelos y los integramos al análisis.'},
+    {title:'Visita de nuestro equipo',text:'Un asesor de Círculo Internacional puede visitar el inmueble para complementar la comparación.'},
+    {title:'Avalúo con perito',text:'Para crédito, juicio o trámite coordinamos un avalúo firmado por perito valuador.'}]);
   if(!received){
-    r.h2('Cómo se trabaja la opinión de valor');
+    r.h2('Metodología');
     r.bullets([
-      'Se toma la ficha del inmueble y se contrasta con los documentos aportados. Las declaraciones sin respaldo se señalan como tales.',
-      `Se buscan anuncios públicos actuales del mismo tipo de inmueble en ${place||'la zona'}, con precio y superficie visibles. Un mismo inmueble publicado en varios portales cuenta una sola vez.`,
-      `Se descartan los que difieren en más de 30% de superficie, en más de una recámara, baño o estacionamiento, en más de 15 años de antigüedad o en estado de conservación sin una homologación justificada.`,
-      `Con al menos ${needed} comparables válidos se calcula la mediana del precio por m² de ${basisLabel} y se multiplica por la superficie del inmueble. El rango muestra la dispersión de la muestra.`,
-      'Las guías de costos, valores catastrales y rentas se conservan como contexto técnico y no sustituyen a los comparables de mercado.'],{size:8.8});
-    r.h2('Fuentes consultadas');
-    r.para(`Se registraron ${num(sources.length)} enlaces públicos consultados durante la búsqueda. Estos son algunos de ellos:`,{size:8.6});
-    for(const u of sources.slice(0,10)) r.para(String(u).replace(/^https?:\/\//,'').slice(0,105),{size:7.2,color:C.muted,after:1});
-    if(sources.length>10) r.para(`Y ${sources.length-10} enlaces más, conservados en el expediente.`,{size:7.6,color:C.muted});
-    if(library.length){r.h2('Biblioteca técnica considerada');r.table(['Documento','Páginas','Uso en el análisis'],[260,50,210],library.slice(0,8).map((d:Row)=>[d.title,fmt(d.evidence?.page_count),'Contexto técnico y metodológico; no son ventas comparables']),{size:7.6});}
+      `Partimos de la ficha del inmueble y de la documentación técnica de costos y valores de referencia.`,
+      `Consultamos anuncios actuales de ${channelText} para ${type.toLowerCase()}s en ${place||'la zona'}, con precio y superficie publicados. Un mismo inmueble anunciado en varios portales cuenta una sola vez.`,
+      `Clasificamos cada inmueble como comparable directo (mismo tipo, zona, superficie ±30%, distribución, antigüedad y conservación) o comparable con ajuste cuando difiere en un solo aspecto, como conservación o antigüedad.`,
+      `Calculamos el precio por m² de ${basisLabel} de cada comparable, lo ponderamos (directos 100%, ajustados 50%) y lo aplicamos a la superficie de tu inmueble. El rango refleja la dispersión de la muestra.`,
+      ],{size:8.8});
+    const urls=sources.filter((u:unknown)=>/^https?:\/\//.test(String(u)));
+    if(urls.length){
+      r.h2('Fuentes consultadas');
+      r.para(`Registramos ${num(sources.length)} enlaces públicos durante la búsqueda. Algunos de ellos:`,{size:8.6});
+      for(const u of urls.slice(0,10)) r.para(String(u).replace(/^https?:\/\/(www\.)?/,'').slice(0,105),{size:7.2,color:C.muted,after:1});
+      if(sources.length>10) r.para(`Y ${num(sources.length-Math.min(urls.length,10))} enlaces más, conservados en el expediente.`,{size:7.6,color:C.muted});
+    }
+    r.newPage('Respaldo técnico');r.h1('Respaldo técnico','Fuentes de referencia');
+    if(summary.documentary) r.callout(`Contrastamos ${num(summary.documentary)} datos técnicos de valor y costo`,'Costos de construcción, valores de referencia por zona y guías de precios de organismos del sector. Nos permiten confirmar que el valor estimado es congruente con el costo de reponer el inmueble y con los rangos de la zona.','neutral');
+    if(library.length){r.h2('Biblioteca técnica');r.table(['Documento','Páginas','Uso en el análisis'],[270,50,200],library.slice(0,8).map((d:Row)=>[d.title,fmt(d.evidence?.page_count),'Referencia técnica de costos y valores']),{size:7.6});}
   }
-  r.callout('Alcance de este documento','Este informe es una lectura orientativa del mercado preparada por ValoraIA, la plataforma de análisis de Círculo Internacional Bienes Raíces. No asigna un valor de cero ni usa el precio anunciado como estimación, y no constituye un avalúo firmado, fiscal, hipotecario ni judicial. Para aclaraciones o una revisión, escríbenos a contacto@circulointernacionalveracruz.org o al 229 135 8056.','neutral');
+  r.callout('Sobre este documento','Opinión de valor comercial elaborada por ValoraIA, la plataforma de análisis de Círculo Internacional Bienes Raíces, a partir del mercado inmobiliario actual. Para operaciones de crédito hipotecario, trámites fiscales o judiciales se requiere un avalúo firmado por perito valuador, que con gusto coordinamos. Contacto: contacto@circulointernacionalveracruz.org · 229 135 8056.','neutral');
   return r.save();
 }
 
@@ -146,7 +199,9 @@ export async function saveDeliverable(admin:any,request:Row,config:Row,runId:str
   if(previous.pdf_storage_path)data.previous_versions.push({path:previous.pdf_storage_path,generated_at:previous.generated_at});
   // Persist a compact ledger; complete catalog extractions stay in the library.
   data.documents=documents.map((d:Row)=>({...d,evidence:d.evidence?{complete:d.evidence.complete,page_count:d.evidence.page_count,completed_pages:d.evidence.completed_pages,summary:d.kind==='knowledge'?undefined:d.evidence.summary?.slice(0,1800),content_hash:d.evidence.content_hash,warnings:d.evidence.warnings?.slice(0,3),warning_count:d.evidence.warnings?.length||0}:null}));
-  check(await admin.from('commercial_reports').update({status:outcome==='received'?'generating':'generated',report_data:data,pdf_storage_path:path,generated_at:data.generated_at,error_message:null,estimated_value:null,low_value:null,high_value:null,price_per_m2:null,comparable_count:data.comparables.length}).eq('request_id',request.id));
+  const est=outcome==='received'?{value:null}:marketEstimate(data);
+  if(est.value)data.market_estimate={value:est.value,low:est.low,high:est.high,price_per_m2:Math.round(est.unit),confidence:est.confidence,direct:est.direct,adjusted:est.adjusted};
+  check(await admin.from('commercial_reports').update({status:outcome==='received'?'generating':'generated',report_data:data,pdf_storage_path:path,generated_at:data.generated_at,error_message:null,estimated_value:est.value||null,low_value:est.value?est.low:null,high_value:est.value?est.high:null,price_per_m2:est.value?Math.round(est.unit):null,comparable_count:est.value?est.listings.length:data.comparables.length}).eq('request_id',request.id));
   check(await admin.from('service_requests').update({document_status:outcome==='received'?'generating':'ready',document_storage_path:path,document_generated_at:data.generated_at,document_emailed_at:null,status:'in_review'}).eq('id',request.id).eq('service_type','commercial'));
   return data;
 }

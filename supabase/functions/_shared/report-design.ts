@@ -114,10 +114,18 @@ export class Report {
     let ty = H - 182;
     for (const line of this.wrap(o.title, this.b, 26, CW)) { this.textAt(line, M, ty, { bold: true, size: 26, color: C.white }); ty -= 31; }
     for (const line of this.wrap(o.subtitle, this.f, 12, CW)) { this.textAt(line, M, ty - 4, { size: 12, color: rgb(0.82, 0.82, 0.85) }); ty -= 17; }
-    // insignia de resultado
-    const badgeW = this.b.widthOfTextAtSize(clean(o.badge), 9) + 26;
-    p.drawRectangle({ x: M, y: H - 285, width: badgeW, height: 22, color: o.badgeColor || C.red });
-    this.textAt(o.badge, M + 13, H - 278, { bold: true, size: 9, color: C.white });
+    if (o.value) { // valor estimado destacado en la portada
+      this.textAt(o.valueLabel || "VALOR DE MERCADO ESTIMADO", M, H - 236, { bold: true, size: 9, color: C.red });
+      this.textAt(o.value, M, H - 268, { bold: true, size: 30, color: C.white });
+      if (o.valueNote) this.textAt(o.valueNote, M, H - 287, { size: 9.5, color: rgb(0.82, 0.82, 0.85) });
+      if (o.badge) { const bw = this.b.widthOfTextAtSize(clean(o.badge), 8.5) + 22, bx = W - M - bw;
+        p.drawRectangle({ x: bx, y: H - 272, width: bw, height: 22, color: o.badgeColor || C.red });
+        this.textAt(o.badge, bx + 11, H - 265, { bold: true, size: 8.5, color: C.white }); }
+    } else if (o.badge) { // insignia de estado
+      const badgeW = this.b.widthOfTextAtSize(clean(o.badge), 9) + 26;
+      p.drawRectangle({ x: M, y: H - 285, width: badgeW, height: 22, color: o.badgeColor || C.red });
+      this.textAt(o.badge, M + 13, H - 278, { bold: true, size: 9, color: C.white });
+    }
 
     // tarjeta del inmueble
     this.y = H - 345;
@@ -315,6 +323,38 @@ export class Report {
       for (const l of this.wrap(c.text, this.f, 8.5, w - 24)) { this.textAt(l, x + 12, yy, { size: 8.5, color: C.body }); yy -= 11.5; }
     });
     this.y -= h + 14;
+  }
+  // Barra de rango: mínimo, estimado y máximo del valor de mercado.
+  range(o: { low: number; mid: number; high: number; fmt: (n: number) => string; labels?: [string, string, string] }) {
+    const h = 78; this.ensure(h + 10);
+    const x0 = M + 10, x1 = M + CW - 10, by = this.y - 34, span = Math.max(o.high - o.low, 1);
+    const pos = (v: number) => x0 + ((v - o.low) / span) * (x1 - x0);
+    this.page.drawRectangle({ x: x0, y: by - 5, width: x1 - x0, height: 10, color: C.redSoft });
+    this.page.drawRectangle({ x: x0, y: by - 5, width: pos(o.mid) - x0, height: 10, color: rgb(0.97, 0.62, 0.66) });
+    const lb = o.labels || ["Valor mínimo", "Valor estimado", "Valor máximo"];
+    this.textAt(lb[0], x0, by + 22, { size: 7.5, color: C.muted }); this.textAt(o.fmt(o.low), x0, by + 11, { bold: true, size: 10, color: C.ink });
+    this.textAt(lb[2], x1, by + 22, { size: 7.5, color: C.muted, align: "right" }); this.textAt(o.fmt(o.high), x1, by + 11, { bold: true, size: 10, color: C.ink, align: "right" });
+    const mx = pos(o.mid);
+    this.page.drawCircle({ x: mx, y: by, size: 9, color: C.red, borderColor: C.white, borderWidth: 2 });
+    this.textAt(lb[1], mx, by - 22, { size: 7.5, color: C.muted, align: "center" });
+    this.textAt(o.fmt(o.mid), mx, by - 36, { bold: true, size: 13, color: C.red, align: "center" });
+    this.y -= h + 8;
+  }
+  // Galería de fotografías del cliente (JPEG o PNG), dos por fila.
+  async photos(list: { title?: string; mime_type?: string; bytes?: Uint8Array }[]) {
+    const gap = 12, w = (CW - gap) / 2, h = 170;
+    let col = 0;
+    for (const ph of list) {
+      if (!ph.bytes) continue;
+      let img: any; try { img = /png/.test(ph.mime_type || "") ? await this.doc.embedPng(ph.bytes) : await this.doc.embedJpg(ph.bytes); } catch { continue; }
+      if (col === 0) this.ensure(h + 26);
+      const x = M + col * (w + gap), s = img.scaleToFit(w, h);
+      this.page.drawRectangle({ x, y: this.y - h, width: w, height: h, color: C.soft });
+      this.page.drawImage(img, { x: x + (w - s.width) / 2, y: this.y - h + (h - s.height) / 2, width: s.width, height: s.height });
+      if (ph.title) this.textAt(String(ph.title).slice(0, 60), x, this.y - h - 11, { size: 7.5, color: C.muted });
+      col++; if (col === 2) { col = 0; this.y -= h + 24; }
+    }
+    if (col) this.y -= h + 24;
   }
   save() { this.footer(); return this.doc.save(); }
 }

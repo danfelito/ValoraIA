@@ -186,8 +186,8 @@ export function selectComparables(subject: Row, inputs: Row[], retrievedUrls: st
     if (c.currency !== subject.currency) { reject(c, "Moneda diferente o no documentada"); continue; }
     if (!["offer", "closed_sale"].includes(c.operation_type) || c.price_basis !== "total") { reject(c, "El dato es renta, costo, valor fiscal, rango agregado u otra referencia"); continue; }
     if (c.property_type !== subject.property_type) { reject(c, "Tipo de inmueble distinto"); continue; }
-    if (!sameLocation(c.region, subject.region) || !sameLocation(c.municipality, subject.municipality)
-      || (subject.locality && !sameLocation(c.locality, subject.locality))) { reject(c, "Ubicación fuera del mercado definido"); continue; }
+    if (!sameLocation(c.region, subject.region) || !sameLocation(c.municipality, subject.municipality)) { reject(c, "Ubicación fuera del mercado definido"); continue; }
+    const adjacent = !!subject.locality && !sameLocation(c.locality, subject.locality);
     if (area / subject.area < 0.7 || area / subject.area > 1.3) { reject(c, "Superficie fuera del margen de selección de 30%"); continue; }
     if (c.is_subject === true || (subject.listing_url && c.url === subject.listing_url)) { reject(c, "Es la propiedad analizada"); continue; }
     if (/\d/.test(subject.address_line || "") && normalized(c.address_line) === normalized(subject.address_line)) { reject(c, "La dirección corresponde al inmueble sujeto"); continue; }
@@ -213,7 +213,7 @@ export function selectComparables(subject: Row, inputs: Row[], retrievedUrls: st
     if (subject.conservation_state && c.conservation_state && normalized(subject.conservation_state) !== normalized(c.conservation_state)) mismatch = "Estado de conservación distinto; necesita homologación justificada";
     const sy = numberValue(subject.construction_year), cy = numberValue(c.construction_year);
     if (sy !== null && cy !== null && Math.abs(sy - cy) > 15) mismatch = "Antigüedad demasiado diferente";
-    if (mismatch) { reject(c, mismatch); continue; }
+    if (mismatch) { reject(c, adjacent ? mismatch + "; además en otra colonia" : mismatch); continue; }
     const comparableKeys = ["bedrooms", "bathrooms", "parking_spaces", "construction_year", "conservation_state"];
     const declaredKeys = comparableKeys.filter((key) => subject[key] !== null && subject[key] !== undefined && subject[key] !== "");
     if (subject.area_basis === "built" && declaredKeys.length >= 2 && declaredKeys.filter((key) => c[key] !== null && c[key] !== undefined && c[key] !== "").length < 2) {
@@ -231,6 +231,7 @@ export function selectComparables(subject: Row, inputs: Row[], retrievedUrls: st
       || (c.duplicate_group && c.duplicate_group === other.duplicate_group)
       || (!c.address_line && !other.address_line && Math.abs(c.price / other.price - 1) < 0.005 && Math.abs(c.area / other.area - 1) < 0.005 && sameLocation(c.locality, other.locality)));
     if (duplicate) { reject(c, "Mismo anuncio o posible duplicado; no cuenta como evidencia independiente"); continue; }
+    if (adjacent) { reject(c, "Colonia colindante del mismo municipio; requiere ajuste por ubicación"); continue; }
     included.push(c);
   }
   // Ofertas y cierres no se mezclan: se usa la serie con al menos tres registros.
