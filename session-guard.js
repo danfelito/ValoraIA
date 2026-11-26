@@ -4,6 +4,11 @@
 // Los accesos inmediatos (anónimos) no se cierran: no tienen contraseña para volver a entrar.
 (function () {
   'use strict';
+  // La dirección antigua (Render) manda a la nueva, conservando la página y sus datos en la URL.
+  if (location.hostname === 'valoraia.onrender.com') {
+    location.replace('https://valoraia.circulointernacionalveracruz.org' + location.pathname + location.search + location.hash);
+    return;
+  }
   var IDLE_MS = 30 * 60 * 1000;
   var TOKEN = 'sb-wctwkhixmmluckingjhf-auth-token';
   var LAST = 'valoraia_last_activity';
