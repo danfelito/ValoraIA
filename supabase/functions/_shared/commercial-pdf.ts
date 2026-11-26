@@ -215,10 +215,10 @@ export async function commercialPdf(data: Row): Promise<Uint8Array> {
     c.source_id === r.source_id && c.page_number === r.page_number && c.title === r.title)
     || (r.operation_type === "land_reference" && r.applicable_location));
   const printedRefs = relevantRefs.slice(0, 12);
-  const costCount = refs.filter((r: Row) => r.operation_type === "construction_cost").length;
+  const costCount = data.contextual_cost_count ?? refs.filter((r: Row) => r.operation_type === "construction_cost").length;
   if (costCount) text("El repositorio contiene " + costCount + " referencias de costos compatibles con la categoría general del inmueble. No se aplicaron al valor: falta seleccionar y justificar el modelo, alcance, ajuste regional/temporal y depreciación. No se reproducen todos los modelos del catálogo en este informe.", 9);
   if (relevantRefs.length > printedRefs.length) text("Se muestran " + printedRefs.length + " de " + relevantRefs.length + " antecedentes pertinentes. La extracción completa permanece en el repositorio privado; los comparables usados se muestran íntegros en la sección de mercado.", 9);
-  if (!refs.length) text("Los documentos analizados no aportaron referencias monetarias compatibles con el tipo de inmueble. Esto no reemplaza las demás aportaciones documentales.");
+  if (!refs.length && !data.contextual_total) text("Los documentos analizados no aportaron referencias monetarias compatibles con el tipo de inmueble. Esto no reemplaza las demás aportaciones documentales.");
   for (const r of printedRefs) {
     ensure(120);
     text(r.title + " | " + label(r.operation_type), 10, true, 3);
@@ -262,7 +262,8 @@ export async function commercialPdf(data: Row): Promise<Uint8Array> {
   text("Visita al inmueble, conservación real, acabados, ocupación, medidas documentales, régimen de propiedad y condiciones jurídicas. Confirmar vigencia, disponibilidad y características faltantes de los anuncios. La extracción documental no certifica titularidad ni ausencia de gravámenes.");
   if (data.excluded.length) {
     heading("Referencias excluidas");
-    for (const e of data.excluded) text((e.title || e.source || "Referencia") + ": " + e.exclusion_reason + ".", 8.8);
+    for (const e of data.excluded.slice(0, 40)) text((e.title || e.source || "Referencia") + ": " + e.exclusion_reason + ".", 8.8);
+    if (data.excluded_summary?.total > Math.min(40, data.excluded.length)) text(`En total se descartaron ${data.excluded_summary.total} referencias (${data.excluded_summary.market} de mercado y ${data.excluded_summary.documentary} de documentos y catálogos técnicos).`, 8.8);
 
   }
   heading("Enfoques técnicos evaluados");

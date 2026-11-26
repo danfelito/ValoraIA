@@ -1,4 +1,4 @@
-import { REPORT_VERSION, canonicalUrl, resolveSubject, selectComparables, marketStatistics, documentCandidates, contextualReferences } from "./commercial-core.ts";
+import { REPORT_VERSION, canonicalUrl, resolveSubject, selectComparables, marketStatistics, documentCandidates, contextualReferences, compactExcluded } from "./commercial-core.ts";
 import type { Row } from "./commercial-core.ts";
 import { check, loadSources, processSourceStep, requestAI, outputText, consultedUrls, background, digest, validEvidence } from "./commercial-evidence.ts";
 import { inputSnapshot } from "./report-inputs.ts";
@@ -7,6 +7,14 @@ import { commercialPdf } from "./commercial-pdf.ts";
 import { VALUATION_MODEL } from "./llm-config.ts";
 import { saveDeliverable, reviewReason } from "./report-deliverable.ts";
 
+// Los catálogos técnicos aportan miles de referencias de contexto. Se guardan sólo las que
+// el informe puede mostrar (las usadas y las de suelo de la misma zona) y el conteo de costos.
+function compactContext(refs: Row[], included: Row[]) {
+  const relevant = refs.filter((r: Row) => included.some((c: Row) => c.source_id === r.source_id && c.page_number === r.page_number && c.title === r.title)
+    || (r.operation_type === "land_reference" && r.applicable_location));
+  return { contextual_references: relevant.slice(0, 40), contextual_cost_count: refs.filter((r: Row) => r.operation_type === "construction_cost").length,
+    contextual_total: refs.length };
+}
 function table(config: Row) { return config.preview ? "valuation_report_previews" : "commercial_reports"; }
 function key(config: Row) { return config.preview ? "case_id" : "request_id"; }
 function target(request: Row, config: Row) { return config.preview ? request.case_id : request.id; }
@@ -135,7 +143,8 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
     const registered = stored.map((c: Row) => ({ ...c, origin: "web", url: c.source_url, source: c.source_name, currency: c.currency_code,
       price_basis: "total", date: c.observed_at, price_evidence: c.notes, area_evidence: c.notes, reviewed: c.source_quality === "verified" }));
     const selection = selectComparables(subject, [...market.comparables, ...registered, ...documentCandidates(documents)], market.sources, new Date().toISOString().slice(0, 10));
-    await progress(admin,request,runId,config,"market",{market_diagnostics:{market,included:selection.included,excluded:selection.excluded}});
+    const excludedCompact = compactExcluded(selection.excluded);
+    await progress(admin,request,runId,config,"market",{market_diagnostics:{market,included:selection.included,excluded:excludedCompact.items,excluded_summary:excludedCompact.summary}});
     const statistics = marketStatistics(selection.included, subject);
     const refreshedCase = check(await admin.from("valuation_cases").select("*").eq("id", request.case_id).single());
     const refreshedRequest = request.internal ? request : check(await admin.from("service_requests").select("*").eq("id", request.id).single());
@@ -145,7 +154,7 @@ async function runStep(admin: any, request: Row, runId: string, config: Row) {
       outcome: "estimated",
       folio: request.valuation_cases?.folio || request.case_id, generated_date: new Intl.DateTimeFormat("es-MX", { timeZone: "America/Mexico_City" }).format(new Date()),
       generated_at: new Date().toISOString(), client: request.client_name || "Solicitante no indicado", subject, statistics,
-      comparables: selection.included, excluded: selection.excluded, contextual_references: contextualReferences(subject, documents), documents,
+      comparables: selection.included, excluded: excludedCompact.items, excluded_summary: excludedCompact.summary, ...compactContext(contextualReferences(subject, documents), selection.included), documents,
       subject_review: saved.subject_review, market_observation: market, input_fingerprint: end.fingerprint,
       input_usage: { client_fields: ["address_line", "postal_code", "land_area_m2", "built_area_m2", "bedrooms", "bathrooms", "parking_spaces", "floors", "construction_year", "conservation_state", "construction_quality", "property_subtype", "property_notes"].map(field => ({ field, value: subject[field] ?? null })),
         captured_intake: Object.fromEntries(Object.entries(request.intake_data || {}).filter(([field]) => !/client|phone|contact|email|consent|privacy|fiscal|invoice/.test(field))),

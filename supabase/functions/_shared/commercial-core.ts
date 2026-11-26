@@ -264,6 +264,19 @@ export function marketStatistics(comparables: Row[], subject: Row): Row {
   };
 }
 
+// Las referencias de catálogos y documentos se cuentan por miles. Se conservan todas
+// las de mercado (web y registradas) y una muestra de las documentales, con un resumen
+// por motivo, para que guardar el diagnóstico y dibujar el PDF no exceda los límites.
+export function compactExcluded(excluded: Row[], documentSample = 12, marketCap = 60): { items: Row[]; summary: Row } {
+  const market = excluded.filter((e) => e.origin !== "pdf"), documentary = excluded.filter((e) => e.origin === "pdf");
+  const byReason: Row = {};
+  for (const e of excluded) { const k = (e.origin === "pdf" ? "documento: " : "mercado: ") + (e.exclusion_reason || "sin motivo"); byReason[k] = (byReason[k] || 0) + 1; }
+  const slim = (e: Row) => ({ title: e.title ?? null, source: e.source ?? null, url: e.url ?? null, origin: e.origin ?? null, price: e.price ?? null,
+    land_area_m2: e.land_area_m2 ?? null, built_area_m2: e.built_area_m2 ?? null, exclusion_reason: e.exclusion_reason ?? null });
+  return { items: [...market.slice(0, marketCap), ...documentary.slice(0, documentSample)].map(slim),
+    summary: { total: excluded.length, market: market.length, documentary: documentary.length, by_reason: byReason } };
+}
+
 export function documentCandidates(documents: Row[]): Row[] {
   return documents.flatMap((doc) => (doc.evidence.price_references || []).map((reference: Row) => ({
     ...reference, origin: "pdf", source_id: doc.id, source: doc.title, source_hash: doc.evidence.content_hash,
