@@ -151,7 +151,7 @@
 
     root.innerHTML = `${serviceSummary()}
       <section class="card request-card">
-        <form id="request">
+        <form id="request" novalidate>
           <h2 class="section-title">Datos del solicitante</h2>
           <div class="fields">
             <div class="field"><label>Nombre completo *</label><input name="client_name" value="${esc(defaultName)}" required></div>
@@ -227,6 +227,27 @@
     };
     form.addEventListener('input', save); form.addEventListener('change', save);
   }
+  // Validación propia (el formulario usa novalidate): en celulares el navegador a veces
+  // bloquea el envío sin mostrar ningún aviso. Aquí siempre se dice qué falta y dónde.
+  window.valoraiaValidate = (form) => {
+    form.querySelectorAll('.field-missing').forEach(el => el.classList.remove('field-missing'));
+    const bad = [];
+    for (const el of form.elements) {
+      if (!el.name || el.disabled || el.type === 'hidden' || el.closest('.hidden')) continue;
+      const empty = el.type === 'checkbox' ? (el.required && !el.checked) : (el.required && !String(el.value).trim());
+      if (empty || (el.validity && !el.validity.valid)) {
+        const label = (el.closest('.field')?.querySelector('label') || el.closest('.check')?.querySelector('label'))?.textContent || el.name;
+        bad.push({ el, label: label.replace(/\*/g, '').replace(/\s+/g, ' ').trim().slice(0, 70), why: el.validity?.badInput || el.validity?.rangeUnderflow || el.validity?.typeMismatch ? 'revisa el formato' : '' });
+      }
+    }
+    bad.forEach(b => b.el.classList.add('field-missing'));
+    if (bad.length) {
+      const first = bad[0].el;
+      first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (_) {} }, 400);
+    }
+    return bad.map(b => b.why ? `${b.label} (${b.why})` : b.label);
+  };
   window.valoraiaClearDraft = () => { try { sessionStorage.removeItem(DRAFT_KEY); } catch (_) {} };
 
   // La superficie obligatoria depende del tipo de inmueble: terreno para terrenos y ranchos
@@ -252,6 +273,8 @@
     event.preventDefault();
     const button = document.getElementById('send');
     const status = document.getElementById('rs');
+    const missing = window.valoraiaValidate(event.currentTarget);
+    if (missing.length) { status.innerHTML = note('Falta completar: ' + missing.join(', ') + '. Los marcamos en rojo.', true); return; }
     const form = new FormData(event.currentTarget);
     const payload = {};
     for (const [key, value] of form.entries()) payload[key] = value;

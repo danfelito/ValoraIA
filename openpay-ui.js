@@ -40,8 +40,10 @@
       cfdi_use: String(fd.get('fiscal_cfdi_use') || '').trim(),
       email: String(fd.get('fiscal_email') || fd.get('client_email') || '').trim().toLowerCase()
     } : {};
+    const invalid = window.valoraiaValidate ? window.valoraiaValidate(form) : [];
+    if (invalid.length) { status.innerHTML = note('Falta completar: ' + invalid.join(', ') + '. Los marcamos en rojo en el formulario.', true); status.scrollIntoView?.({block:'nearest'}); return; }
     button.disabled = true;
-    status.innerHTML = '<div class="status">Preparando tu expediente y la liga segura de pago…</div>';
+    status.innerHTML = '<div class="status">Preparando tu expediente…</div>';
     try {
       const {validateIntakeFiles,uploadIntakeFiles,captureFingerprint}=await import('./upload-intake.mjs?v=2');
       const files=fd.getAll('intake_files').filter(file=>file.size);
