@@ -10,6 +10,7 @@ import { renderEmail } from "../_shared/flow-emails.ts";
 type Row = Record<string, any>;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const MAX_ATTACHMENT = 8_000_000;
+const withTimeout = <T,>(p: Promise<T>, ms: number, msg: string) => Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(msg)), ms))]);
 
 function smtpConfig() {
   const user = Deno.env.get("SMTP_USER") || "contacto@circulointernacionalveracruz.org";
@@ -35,8 +36,9 @@ async function sendPending(admin: any, summary: Row) {
     return;
   }
   const transport = nodemailer.createTransport({ host: cfg.host, port: cfg.port, secure: cfg.port === 465,
-    auth: { user: cfg.user, pass: cfg.pass }, connectionTimeout: 15000, socketTimeout: 60000 });
-  try { await transport.verify(); }
+    auth: { user: cfg.user, pass: cfg.pass }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 30000 });
+  summary.stage = "smtp_login";
+  try { await withTimeout(transport.verify(), 15000, "El servidor de correo no respondió al iniciar sesión"); }
   catch (error) { summary.smtp_error = String(error instanceof Error ? error.message : error).slice(0, 200); return; } // no gastar intentos si el buzón rechaza el acceso
 
   const claimed = await admin.rpc("flow_claim_notifications", { p_limit: 10 });
@@ -110,13 +112,14 @@ Deno.serve(async (req: Request) => {
   const body = await req.json().catch(() => ({}));
   if (body.health) { const cfg = smtpConfig(); return json({ configured: !!cfg.pass, host: cfg.host, port: cfg.port, smtp: await reachable(cfg.host, cfg.port) }); }
 
-  const work = (async () => {
-    const summary: Row = { at: new Date().toISOString(), sent: 0, failed: 0, retried: 0, given_up: 0 };
-    try { await resumeStalled(admin, url, service, summary); } catch (error) { summary.watchdog_error = String(error instanceof Error ? error.message : error).slice(0, 200); }
-    try { await sendPending(admin, summary); } catch (error) { summary.mail_error = String(error instanceof Error ? error.message : error).slice(0, 200); }
-    await admin.rpc("flow_record_run", { p_result: summary });
-  })();
-  // @ts-ignore EdgeRuntime existe en Supabase
-  if (globalThis.EdgeRuntime?.waitUntil) globalThis.EdgeRuntime.waitUntil(work); else await work;
-  return json({ accepted: true }, 202);
+  // Se trabaja con la llamada abierta (pg_cron espera hasta 55 s) y se deja rastro de cada etapa.
+  const summary: Row = { at: new Date().toISOString(), sent: 0, failed: 0, retried: 0, given_up: 0, stage: "start" };
+  await admin.rpc("flow_record_run", { p_result: summary });
+  try { summary.stage = "watchdog"; await resumeStalled(admin, url, service, summary); } catch (error) { summary.watchdog_error = String(error instanceof Error ? error.message : error).slice(0, 200); }
+  try { summary.stage = "mail"; await withTimeout(sendPending(admin, summary), 45000, "El envío de correos tardó demasiado"); } catch (error) { summary.mail_error = String(error instanceof Error ? error.message : error).slice(0, 200); }
+  summary.stage = "done"; summary.ms = Date.now() - Date.parse(summary.at);
+  const saved = await admin.rpc("flow_record_run", { p_result: summary });
+  if (saved.error) console.error("flow_record_run", saved.error.message);
+  console.log("flow-keeper", JSON.stringify(summary));
+  return json(summary);
 });

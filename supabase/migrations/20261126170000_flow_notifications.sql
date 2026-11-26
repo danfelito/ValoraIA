@@ -128,7 +128,7 @@ $$;
 
 create or replace function public.flow_record_run(p_result jsonb) returns void
 language sql security definer set search_path = '' as $$
-  update public.flow_config set last_run_at = now(), last_result = p_result;
+  update public.flow_config set last_run_at = now(), last_result = p_result where singleton;
 $$;
 
 revoke all on function public.queue_request_notifications() from public, anon, authenticated;
@@ -148,7 +148,7 @@ begin
     url := 'https://wctwkhixmmluckingjhf.supabase.co/functions/v1/flow-keeper',
     headers := jsonb_build_object('Content-Type', 'application/json', 'x-flow-token', t),
     body := '{}'::jsonb,
-    timeout_milliseconds := 5000);
+    timeout_milliseconds := 55000);
 end $$;
 revoke all on function public.flow_tick() from public, anon, authenticated;
 
