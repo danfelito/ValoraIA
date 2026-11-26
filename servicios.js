@@ -63,7 +63,7 @@
           <div id="quick-status" role="status"></div>
         </form>
         <details class="account-access">
-          <summary>Ya tengo cuenta o quiero crear una</summary>
+          <summary><strong>¿Ya tienes cuenta?</strong> Ingresa con tu correo y contraseña (o crea una)</summary>
           <form id="auth">
             <div class="field"><label>Nombre completo</label><input name="name" autocomplete="name"></div>
             <div class="field"><label>Correo</label><input name="email" type="email" autocomplete="email" required></div>
