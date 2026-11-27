@@ -49,10 +49,12 @@ export function marketEstimate(data:Row):Row {
 }
 // Mediana de rentas publicadas: renta por m2 de anuncios con superficie parecida (±30%) aplicada al inmueble.
 export function rentMarket(data:Row,est:Row):Row|null {
-  const s=data.subject||{}, area=Number(est.area), rows=(data.market_observation?.rentals||[]).map((r:Row)=>{
-    const a=Number(est.land?r.land_area_m2:(r.built_area_m2??r.land_area_m2));return a>0&&Number(r.monthly_rent)>0&&a/area>=0.7&&a/area<=1.3?Number(r.monthly_rent)/a:null;}).filter((u:number|null)=>u) as number[];
+  const s=data.subject||{}, area=Number(est.area), norm=(v:unknown)=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const rows=(data.market_observation?.rentals||[]).map((r:Row)=>{
+    const a=Number(est.land?r.land_area_m2:(r.built_area_m2??r.land_area_m2));return a>0&&Number(r.monthly_rent)>0&&a/area>=0.7&&a/area<=1.3?{unit:Number(r.monthly_rent)/a,rent:Number(r.monthly_rent),local:!!s.locality&&norm(r.locality)===norm(s.locality)}:null;}).filter(Boolean) as Row[];
   if(rows.length<3||!(area>0))return null;
-  return {median:Math.round(median(rows)*area/500)*500,count:rows.length,currency:s.currency||'MXN'};
+  const local=rows.filter((r:Row)=>r.local), use=local.length>=3?local:rows, rents=use.map((r:Row)=>r.rent);
+  return {median:Math.round(median(use.map((r:Row)=>r.unit))*area/500)*500,count:use.length,onlyLocal:local.length>=3,min:Math.min(...rents),max:Math.max(...rents),currency:s.currency||'MXN'};
 }
 export async function deliverablePdf(data:Row,brand:Row={}):Promise<Uint8Array> {
   const s=data.subject||{}, received=data.outcome==='received';
@@ -134,12 +136,12 @@ export async function deliverablePdf(data:Row,brand:Row={}):Promise<Uint8Array> 
       ...(hasValue?[{value:M$(est.value),label:'Valor de mercado estimado',note:`Rango de ${M$(est.low)} a ${M$(est.high)}`}]:[])]);
     if(est.listings.length){
       r.h2(`Precio por m² de ${basisLabel} de cada comparable`);
-      r.hbars([...est.listings].sort((a:Row,b:Row)=>b.unit-a.unit).map((c:Row)=>({label:clean(String(c.source||c.title||'Anuncio')).slice(0,30),sub:c.direct?'Comparable directo':`Ajustado por ${c.difference}`,
+      r.hbars([...est.listings].sort((a:Row,b:Row)=>b.unit-a.unit).map((c:Row)=>({label:clean(String(c.source||c.title||'Anuncio').split(/[;(]/)[0].trim()).slice(0,30),sub:c.direct?'Comparable directo':`Ajustado por ${c.difference}`,
         value:c.unit,display:M$(c.unit),color:c.direct?C.red:rgb(0.97,0.6,0.64)})),{labelWidth:165,refValue:est.unit,refLabel:est.adjusted?'Precio ponderado':'Precio de referencia'});
       r.para(`La línea punteada marca el precio ${est.adjusted?'ponderado':'de referencia (mediana de la muestra)'} de ${M$(est.unit)} por m², que aplicamos a los ${num(est.area)} m² de ${basisLabel} de tu inmueble para obtener el valor estimado.`,{size:8.4,color:C.muted});
       r.h2('Detalle de los comparables');
       r.table(['Fuente','Precio publicado','Construcción','Terreno','Precio / m²','Peso en el cálculo'],[128,84,68,60,74,106],
-        est.listings.map((c:Row)=>[c.source||c.title||'Anuncio',M$(Number(c.price)),fmt(c.built_area_m2??c.area,' m²'),fmt(c.land_area_m2,' m²'),M$(c.unit),c.direct?'Directo · 100%':`Ajustado · 50%`]),
+        est.listings.map((c:Row)=>[String(c.source||c.title||'Anuncio').split(/[;(]/)[0].trim(),M$(Number(c.price)),fmt(c.built_area_m2??c.area,' m²'),fmt(c.land_area_m2,' m²'),M$(c.unit),c.direct?'Directo · 100%':`Ajustado · 50%`]),
         {size:7.8,alignRight:[1,4]});
     }
   }
@@ -156,7 +158,7 @@ export async function deliverablePdf(data:Row,brand:Row={}):Promise<Uint8Array> 
     // Renta de referencia: valor / 10 / 12 (rendimiento bruto anual de 10%).
     const rent=(v:number)=>Math.round(v/10/12/500)*500, rents=rentMarket(data,est);
     r.h2('Si prefieres rentarlo');
-    r.callout(`Renta mensual de referencia: ${M$(rent(est.value))}`,`Aplicamos la fórmula de rendimiento de mercado (valor del inmueble entre 10, dividido entre 12 meses), que permite comparar tu inmueble con otros de la zona. Con el rango de valor, la renta se ubica entre ${M$(rent(est.low))} y ${M$(rent(est.high))} mensuales.${rents?` La mediana de ${pl(rents.count,'renta publicada','rentas publicadas')} de inmuebles parecidos en ${zone} es de ${M$(rents.median)} mensuales.`:''}`,'neutral');
+    r.callout(`Renta mensual de referencia: ${M$(rent(est.value))}`,`Aplicamos la fórmula de rendimiento de mercado (valor del inmueble entre 10, dividido entre 12 meses), que permite comparar tu inmueble con otros de la zona. Con el rango de valor, la renta se ubica entre ${M$(rent(est.low))} y ${M$(rent(est.high))} mensuales.${rents?` Las ${rents.count} rentas publicadas de inmuebles parecidos en ${zone}${rents.onlyLocal?'':' y colonias cercanas'} van de ${M$(rents.min)} a ${M$(rents.max)} mensuales; ajustadas a la superficie de tu inmueble, su mediana es de ${M$(rents.median)}.`:''}`,'neutral');
   } else if(!received) r.cards([
     {title:'Referencias adicionales',text:'Si conoces ventas o anuncios recientes de inmuebles parecidos en la zona, compártelos y los integramos al análisis.'},
     {title:'Visita de nuestro equipo',text:'Un asesor de Círculo Internacional puede visitar el inmueble para complementar la comparación.'},
