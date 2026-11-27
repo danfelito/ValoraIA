@@ -3,6 +3,7 @@ import { Report, C, M, CW, clean, money, num, loadBrand } from "./report-design.
 import { check } from "./report-inputs.ts";
 import { REPORT_VERSION } from "./commercial-core.ts";
 import { validEvidence } from "./commercial-evidence.ts";
+import { costSummary } from "./market-search.ts";
 import type { Row } from "./commercial-core.ts";
 
 export function reviewReason(message:string,stage:string) {
@@ -24,20 +25,35 @@ const pl=(n:number,one:string,many:string)=>`${n} ${n===1?one:many}`;
 const round10k=(n:number)=>Math.round(n/10000)*10000;
 const median=(v:number[])=>{const s=[...v].sort((a,b)=>a-b),m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;};
 export function isLandBasis(s:Row){return ['terreno','rancho'].includes(s.property_type)||(['bodega','industrial'].includes(s.property_type)&&s.area_basis==='land');}
+// ---- Homologación ----
+// Factores que emplean los peritos valuadores para llevar cada comparable a las condiciones del
+// inmueble analizado. Quedan fijos en código; el producto de factores se acota a 0.75–1.25.
+export const NEGOTIATION = { sale: 0.95, rent: 0.97 }; // oferta publicada → precio de cierre
+const USEFUL_LIFE:Row={casa:70,departamento:70,local_comercial:60,oficina:60,bodega:50,industrial:50};
+const clamp=(v:number,lo:number,hi:number)=>Math.min(hi,Math.max(lo,v));
+const ross=(age:number,life:number)=>{const x=Math.min(Math.max(age,0)/life,1);return 0.5*(x+x*x);};
+function conservationScore(v:unknown):number|null{const t=String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  if(!t)return null;if(/excelente|nuev|optimo/.test(t))return 1;if(/muy buen/.test(t))return 0.97;if(/buen/.test(t))return 0.93;if(/regular|normal|medio/.test(t))return 0.85;if(/mal|deterior|remodel/.test(t))return 0.7;return null;}
+export function homologate(c:Row,s:Row,land:boolean,area:number):Row{
+  const ca=Number(land?c.land_area_m2:(c.area??c.built_area_m2));
+  if(!(Number(c.price)>0&&ca>0&&area>0))return {unit:null};
+  if(c.reviewed&&Number(c.adjusted_unit_price)>0)return {unit:Number(c.adjusted_unit_price),raw_unit:Number(c.price)/ca,factor:1,factors:{}};
+  const f:Row={neg:c.operation_type==='rent'?NEGOTIATION.rent:c.operation_type==='closed_sale'?1:NEGOTIATION.sale,sup:clamp(Math.pow(ca/area,0.125),0.9,1.1)};
+  const life=USEFUL_LIFE[s.property_type], year=new Date().getFullYear(), sy=Number(s.construction_year), cy=Number(c.construction_year);
+  if(!land&&life&&sy>1900&&cy>1900)f.edad=clamp((1-ross(year-sy,life))/(1-ross(year-cy,life)),0.8,1.2);
+  const cs=conservationScore(s.conservation_state), cc=conservationScore(c.conservation_state);
+  if(cs&&cc)f.cons=clamp(cs/cc,0.8,1.2);
+  const factor=clamp(Object.values(f).reduce((a:number,b:any)=>a*Number(b),1),0.75,1.25), raw=Number(c.price)/ca;
+  return {unit:raw*factor,raw_unit:raw,factor,factors:f};
+}
 export function marketEstimate(data:Row,step=10000):Row {
   const rnd=(n:number)=>Math.round(n/step)*step;
   const s=data.subject||{}, land=isLandBasis(s), area=Number(land?s.land_area_m2:(s.built_area_m2??s.land_area_m2));
-  const unitOf=(c:Row)=>{if(Number(c.adjusted_unit)>0)return Number(c.adjusted_unit);const a=Number(land?c.land_area_m2:(c.area??c.built_area_m2));return Number(c.price)>0&&a>0?Number(c.price)/a:null;};
-  const st=data.statistics;
-  if(st?.estimated){ // muestra completa de comparables directos: se usan las estadísticas del cálculo
-    const listings=(data.comparables||[]).map((c:Row)=>({...c,direct:true,weight:1,unit:unitOf(c)})).filter((c:Row)=>c.unit);
-    return {listings,direct:listings.length,adjusted:0,area:Number(st.area||s.area||area),land,unit:st.unit,cv:st.cv,confidence:listings.length>=3&&st.cv<=0.2?'alta':'media',value:st.estimated,low:Math.min(st.low,st.estimated),high:Math.max(st.high,st.estimated)};
-  }
   let listings=[...(data.comparables||[]).map((c:Row)=>({...c,direct:true,weight:1})),
     ...(data.excluded||[]).filter((e:Row)=>e.origin!=='pdf'&&ADJUSTABLE.test(String(e.exclusion_reason||''))&&!NOT_ADJUSTABLE.test(String(e.exclusion_reason||'')))
       .map((e:Row)=>({...e,direct:false,weight:0.5,difference:diffLabel(String(e.exclusion_reason||''))}))]
-    .map((c:Row)=>({...c,unit:unitOf(c)})).filter((c:Row)=>c.unit);
-  const seen=new Set<string>(); listings=listings.filter((c:Row)=>{const k=[c.url||'',Math.round(Number(c.price)/1000),Math.round(c.unit)].join('|'),k2='p'+Math.round(Number(c.price)/1000)+'u'+Math.round(c.unit/50);if(seen.has(k)||seen.has(k2)||(c.url&&seen.has(c.url)))return false;seen.add(k);seen.add(k2);if(c.url)seen.add(c.url);return true;});
+    .map((c:Row)=>({...c,...homologate(c,s,land,area)})).filter((c:Row)=>c.unit);
+  const seen=new Set<string>(); listings=listings.filter((c:Row)=>{const k=[c.url||'',Math.round(Number(c.price)/1000),Math.round(c.raw_unit)].join('|'),k2='p'+Math.round(Number(c.price)/1000)+'u'+Math.round(c.raw_unit/50);if(seen.has(k)||seen.has(k2)||(c.url&&seen.has(c.url)))return false;seen.add(k);seen.add(k2);if(c.url)seen.add(c.url);return true;});
   if(listings.length>=3){const m=median(listings.map((c:Row)=>c.unit));listings=listings.filter((c:Row)=>c.unit>=m*0.5&&c.unit<=m*2);} // atípicos
   const direct=listings.filter((c:Row)=>c.direct).length, adjusted=listings.length-direct;
   if(!listings.length||!(area>0))return {listings,direct,adjusted,area,land,value:null};
@@ -57,7 +73,7 @@ const round500=(n:number)=>Math.round(n/500)*500;
 // Renta por m2 de anuncios de renta con superficie parecida (±30%), marcando los de la misma colonia.
 function rentUnits(list:Row[],s:Row,land:boolean,area:number):Row[] {
   return (list||[]).map((r:Row)=>{const a=Number(land?r.land_area_m2:(r.built_area_m2??r.area??r.land_area_m2)),rent=Number(r.monthly_rent??r.price);
-    return a>0&&rent>0&&area>0&&a/area>=0.7&&a/area<=1.3?{...r,rent,unit:rent/a,local:!!s.locality&&norm(r.locality||s.locality)===norm(s.locality)&&!/colindante|otra colonia/i.test(String(r.exclusion_reason||''))}:null;}).filter(Boolean) as Row[];
+    return a>0&&rent>0&&area>0&&a/area>=0.7&&a/area<=1.3?{...r,rent,unit:rent*NEGOTIATION.rent/a,local:!!s.locality&&norm(r.locality||s.locality)===norm(s.locality)&&!/colindante|otra colonia/i.test(String(r.exclusion_reason||''))}:null;}).filter(Boolean) as Row[];
 }
 // Tasa de renta extraída del mercado: renta anual por m2 de la colonia / precio de venta por m2 de la colonia.
 function marketYield(rents:Row[],saleUnit:number):number {
@@ -154,11 +170,11 @@ export async function deliverablePdf(data:Row,brand:Row={}):Promise<Uint8Array> 
       {tag:'03',title:'Comparables utilizados',text:`Son los inmuebles en venta de la zona con los que comparamos el tuyo. Entre más inmuebles parecidos, más preciso es el valor; en tu caso utilizamos ${nList}.`}]);
     r.cards(rent?[
       {tag:'04',title:'Renta por m²',text:`Es la medida que permite comparar inmuebles de distinto tamaño. Aplicada a los ${num(est.area)} m² de ${basisLabel} de tu inmueble da la renta estimada.`},
-      {tag:'05',title:'Gráfica y tabla',text:'Cada barra es un inmueble en renta de la zona. Rojo intenso: comparable directo (pesa 100%). Rojo claro: comparable con ajuste por alguna diferencia (pesa 50%).'},
-      {tag:'06',title:'Renta publicada y renta pactada',text:'Los anuncios muestran la renta que pide el propietario; la renta final suele pactarse ligeramente abajo. Por eso la estimación se apoya en la muestra completa.'}]:[
+      {tag:'05',title:'Gráfica y tabla',text:'Cada barra es la renta homologada por m² de un inmueble de la zona. Rojo intenso: comparable directo (pesa 100%). Rojo claro: comparable con ajuste por alguna diferencia (pesa 50%).'},
+      {tag:'06',title:'Renta publicada y renta pactada',text:'Los anuncios muestran la renta que pide el propietario; la renta final suele pactarse ligeramente abajo. Por eso aplicamos un factor de negociación a cada renta publicada.'}]:[
       {tag:'04',title:'Precio por m²',text:`Es la medida que permite comparar inmuebles de distinto tamaño. Multiplicado por los ${num(est.area)} m² de ${basisLabel} de tu inmueble da el valor estimado.`},
-      {tag:'05',title:'Gráfica y tabla',text:'Cada barra es un inmueble en venta de la zona. Rojo intenso: comparable directo (pesa 100%). Rojo claro: comparable con ajuste por alguna diferencia (pesa 50%).'},
-      {tag:'06',title:'Precio de oferta y de cierre',text:'Los anuncios muestran precios de oferta; la operación final suele cerrarse ligeramente abajo tras la negociación. Por eso el valor estimado se apoya en la muestra completa.'}]);
+      {tag:'05',title:'Gráfica y tabla',text:'Cada barra es el valor homologado por m² de un inmueble en venta de la zona. Rojo intenso: comparable directo (pesa 100%). Rojo claro: comparable con ajuste por alguna diferencia (pesa 50%).'},
+      {tag:'06',title:'Precio de oferta y de cierre',text:'Los anuncios muestran precios de oferta; la operación final suele cerrarse ligeramente abajo tras la negociación. Por eso aplicamos un factor de negociación a cada precio publicado.'}]);
     r.h2('Lo que destacamos de tu inmueble');
     const hl:string[]=(data.subject_review?.highlights||[]).filter((x:unknown)=>typeof x==='string');
     if(!hl.length){
@@ -186,7 +202,7 @@ export async function deliverablePdf(data:Row,brand:Row={}):Promise<Uint8Array> 
         value:c.unit,display:M$(c.unit),color:c.direct?C.red:rgb(0.97,0.6,0.64)})),{labelWidth:165,refValue:fromSales?undefined:est.unit,refLabel:est.adjusted?'Promedio ponderado':'Referencia'});
       if(!fromSales) r.para(`La línea punteada marca ${rent?'la renta':'el precio'} ${est.adjusted?'ponderado':'de referencia'} de ${M$(est.unit)} por m², que aplicamos a los ${num(est.area)} m² de ${basisLabel} de tu inmueble para obtener ${rent?'la renta estimada':'el valor estimado'}.`,{size:8.4,color:C.muted});
       r.h2('Detalle de los comparables');
-      r.table(['Fuente',rent?'Renta publicada':'Precio publicado','Construcción','Terreno',rent?'Renta / m²':'Precio / m²','Peso en el cálculo'],[128,84,68,60,74,106],
+      r.table(['Fuente',rent?'Renta publicada':'Precio publicado','Construcción','Terreno',rent?'Renta homologada / m²':'Valor homologado / m²','Peso en el cálculo'],[128,84,68,60,74,106],
         est.listings.map((c:Row)=>[String(c.source||c.title||'Anuncio').split(/[;(]/)[0].trim(),M$(Number(c.price)),fmt(c.built_area_m2??c.area,' m²'),fmt(c.land_area_m2,' m²'),M$(c.unit),c.direct?'Directo · 100%':`Ajustado · 50%`]),
         {size:7.8,alignRight:[1,4]});
     }
@@ -220,9 +236,10 @@ export async function deliverablePdf(data:Row,brand:Row={}):Promise<Uint8Array> 
     r.bullets([
       `Partimos de la ficha del inmueble y de la documentación técnica de costos y valores de referencia.`,
       `Consultamos anuncios actuales ${T.op} de ${channelText} para ${type.toLowerCase()}s en ${place||'la zona'}, con ${rent?'renta':'precio'} y superficie publicados. Un mismo inmueble anunciado en varios portales cuenta una sola vez.`,
+      `Homologamos cada comparable con los factores que emplean los peritos valuadores: negociación (de ${rent?'renta publicada a renta pactada':'precio de oferta a precio de cierre'}), superficie, edad (Ross-Heidecke) y estado de conservación, para llevarlo a las condiciones de tu inmueble.`,
       `Clasificamos cada inmueble como comparable directo (mismo tipo, zona, superficie ±30%, distribución, antigüedad y conservación) o comparable con ajuste cuando difiere en un solo aspecto, como conservación o antigüedad.`,
       fromSales?'Complementamos las rentas publicadas con inmuebles de las mismas características en la zona y el rendimiento que generan las rentas de la colonia, siguiendo el enfoque de capitalización de rentas que emplean los peritos valuadores.'
-        :`Calculamos ${rent?'la renta':'el precio'} por m² de ${basisLabel} de cada comparable, la ponderamos (directos 100%, ajustados 50%) y la aplicamos a la superficie de tu inmueble. El rango refleja la dispersión de la muestra.`,
+        :`Calculamos ${rent?'la renta homologada':'el valor homologado'} por m² de ${basisLabel} de cada comparable, ${rent?'la':'lo'} ponderamos (directos 100%, ajustados 50%) y ${rent?'la':'lo'} aplicamos a la superficie de tu inmueble. El rango refleja la dispersión de la muestra.`,
       ],{size:8.8});
     // En el informe de renta sólo se listan enlaces de anuncios de renta.
     const urls=(rent?(obs.rental_sources||[]):sources).filter((u:unknown)=>/^https?:\/\//.test(String(u))&&!(rent&&/venta|for-sale/i.test(String(u))));
@@ -246,6 +263,7 @@ export async function saveDeliverable(admin:any,request:Row,config:Row,runId:str
   const subject={...intake,...p,property_type:request.property_type,locality:c.locality||intake.locality,municipality:c.municipality||intake.municipality,region:c.region||intake.region,area_basis:intake.comparison_area_basis||'auto'};
   const prior=previous.report_data||{},market=prior.pipeline?.market_diagnostics||{};
   const data:Row={version:REPORT_VERSION,kind:intake.report_kind==='rent'?'rent':'sale',sale_reference:market.sale_reference||null,outcome,reason,folio:c.folio||request.case_id,generated_at:new Date().toISOString(),generated_date:new Intl.DateTimeFormat('es-MX',{timeZone:'America/Mexico_City'}).format(new Date()),subject,documents,subject_review:prior.pipeline?.subject_review,comparables:market.included||[],excluded:(market.excluded||[]).slice(0,72),excluded_summary:market.excluded_summary||null,market_observation:market.market||{},input_fingerprint:snapshot.fingerprint,previous_versions:prior.previous_versions||[],pipeline:{...prior.pipeline,run_id:runId,stage:outcome==='received'?'documents':'ready',heartbeat:new Date().toISOString()}};
+  data.cost=costSummary(prior.pipeline||{});
   data.photos=[];let imageBytes=0;
   if(outcome!=='received')for(const s of snapshot.sources.filter((s:Row)=>s.kind!=='knowledge'&&/^image\/(jpeg|png)$/.test(s.mime_type||''))){try{const blob=check(await admin.storage.from(s.bucket).download(s.storage_path)),bytes=new Uint8Array(await blob.arrayBuffer());imageBytes+=bytes.length;if(imageBytes<=40000000)data.photos.push({title:s.title,mime_type:s.mime_type,bytes});else data.documents.push({id:s.id,title:s.title,evidence:{warnings:['La fotografía original se conserva en el expediente; no se incorporó por el límite de tamaño del PDF.']}});}catch{data.documents.push({id:s.id,title:s.title,evidence:{warnings:['No se pudo incorporar la imagen; el original permanece registrado para consulta.']}});}}
   data.client=request.client_name||null;
