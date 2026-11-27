@@ -10,7 +10,7 @@
     return;
   }
   var IDLE_MS = 30 * 60 * 1000;
-  var TOKEN = 'sb-wctwkhixmmluckingjhf-auth-token';
+  var TOKEN = 'valoraia.session';
   var LAST = 'valoraia_last_activity';
   var NOTICE = 'valoraia_idle_logout';
 

@@ -1,12 +1,29 @@
-// ValoraIA en Cloudflare Workers (archivos estáticos). El motor sigue en Supabase.
+// ValoraIA en Cloudflare: sitio + API + base D1 + archivos R2 + Workflows + robot cada minuto.
+// Se publica solo desde GitHub (rama main) con Workers Builds.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "valoraia",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": ".",
-    // Las direcciones con .html se conservan tal cual (Openpay y Supabase regresan a ellas).
+    "binding": "ASSETS",
+    // Las direcciones con .html se conservan tal cual (Openpay regresa a ellas).
     "html_handling": "none",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/functions/*", "/health"]
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "valoraia", "database_id": "e678cfe7-26be-4a4f-ba18-58a823d0fd9c", "migrations_dir": "cloudflare/migrations" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "valoraia-files" }],
+  "workflows": [{ "name": "valoraia-jobs", "binding": "JOBS", "class_name": "Jobs" }],
+  "triggers": { "crons": ["* * * * *"] },
+  "limits": { "cpu_ms": 300000 },
+  "observability": { "enabled": true },
+  "vars": {
+    "PUBLIC_URL": "https://valoraia.circulointernacionalveracruz.org",
+    "SMTP_HOST": "smtp.hostinger.com",
+    "SMTP_PORT": "465",
+    "SMTP_USER": "contacto@circulointernacionalveracruz.org"
   }
 }
