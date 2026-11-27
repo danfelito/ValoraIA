@@ -57,7 +57,7 @@ function marketRequest(subject: Row, stored: Row[]): Row {
     "price_evidence y area_evidence: paráfrasis breves y fieles del dato leído, menos de 15 palabras por fragmento.",
     "Revisa también estas referencias si son pertinentes: " + stored.map(c => c.source_url).filter(Boolean).join(", "),
   ].join("\n");
-  return { model: VALUATION_MODEL,
+  return { model: VALUATION_MODEL, max_output_tokens: 48000,
     tools: [{ type: "web_search", external_web_access: true, user_location: { type: "approximate", country: "MX", city: subject.municipality, region: subject.region } }],
     // Web search rejects JSON mode. Request JSON in the prompt, then parse and
     // validate it locally; keep the tool's source evidence separate from text.
@@ -89,7 +89,7 @@ function rentalsRequest(subject: Row): Row {
     "Sólo datos visibles; null para desconocidos. No inventes rentas, superficies ni enlaces.",
     "Devuelve únicamente JSON válido sin Markdown: " + JSON.stringify({ rentals: [{ title: "", monthly_rent: 0, currency: "MXN", locality: null, land_area_m2: null, built_area_m2: null, bedrooms: null, source: "", url: "" }] }),
   ].join("\n");
-  return { model: VALUATION_MODEL, max_output_tokens: 6000,
+  return { model: VALUATION_MODEL, max_output_tokens: 24000,
     tools: [{ type: "web_search", external_web_access: true, user_location: { type: "approximate", country: "MX", city: subject.municipality, region: subject.region } }],
     include: ["web_search_call.action.sources"], input: prompt };
 }
@@ -117,7 +117,9 @@ async function aiPoll(id: string, key: string): Promise<Row | null> {
   const result = await response.json();
   if (!response.ok) throw new Error(result.error?.message || "No se pudo consultar la búsqueda");
   if (["queued", "in_progress"].includes(result.status)) return null;
-  if (result.status !== "completed" || !outputText(result)) throw new Error("La consulta de mercado no se completó");
+  // Una respuesta "incomplete" con texto se intenta leer; si el JSON no es válido, el paso reintenta.
+  if (!["completed", "incomplete"].includes(result.status) || !outputText(result))
+    throw new Error("La consulta de mercado no se completó (" + (result.status || "sin estado") + (result.incomplete_details?.reason ? ": " + result.incomplete_details.reason : "") + ")");
   return result;
 }
 
