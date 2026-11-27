@@ -164,6 +164,7 @@
 
           <h2 class="section-title">Datos del inmueble</h2>
           <div class="fields">
+            ${service === 'commercial' ? `<div class="field full"><label for="f-kind">¿Qué quieres conocer? *</label><select id="f-kind" name="report_kind" required><option value="sale">Valor de venta del inmueble (incluye renta estimada de regalo)</option><option value="rent" ${new URLSearchParams(location.search).get('operacion') === 'renta' ? 'selected' : ''}>Renta mensual del inmueble</option></select></div>` : ''}
             <div class="field"><label>Tipo de inmueble *</label><select name="property_type" required><option value="">Selecciona</option><option value="casa">Casa</option><option value="departamento">Departamento</option><option value="terreno">Terreno</option><option value="local_comercial">Local comercial</option><option value="bodega">Bodega</option><option value="oficina">Oficina</option><option value="rancho">Rancho / finca</option><option value="industrial">Industrial</option><option value="otro">Otro</option></select></div>
             <div class="field"><label>Subtipo o uso</label><input name="property_subtype" placeholder="Ej. residencial, agrícola, ganadero"></div>
             <div class="field full"><label>Dirección completa *</label><input name="address_line" required></div>

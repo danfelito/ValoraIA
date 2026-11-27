@@ -173,7 +173,8 @@ function ageDays(date: unknown, now: string): number | null {
   return Number.isFinite(value) ? (new Date(now).getTime() - value) / 86400000 : null;
 }
 
-export function selectComparables(subject: Row, inputs: Row[], retrievedUrls: string[], now: string): Row {
+// mode "rent": los precios son rentas mensuales y sólo se aceptan anuncios de renta.
+export function selectComparables(subject: Row, inputs: Row[], retrievedUrls: string[], now: string, mode: "sale" | "rent" = "sale"): Row {
   const sources = new Set(retrievedUrls.map(canonicalUrl).filter(Boolean));
   const included: Row[] = [], excluded: Row[] = [];
   const reject = (c: Row, reason: string) => excluded.push({ ...c, exclusion_reason: reason });
@@ -184,7 +185,7 @@ export function selectComparables(subject: Row, inputs: Row[], retrievedUrls: st
     const area = numberValue(subject.area_basis === "land" ? c.land_area_m2 : c.built_area_m2);
     if (!c.price || c.price <= 0 || !area || area <= 0) { reject(c, "Faltan precio o superficie de la misma clase que el sujeto"); continue; }
     if (c.currency !== subject.currency) { reject(c, "Moneda diferente o no documentada"); continue; }
-    if (!["offer", "closed_sale"].includes(c.operation_type) || c.price_basis !== "total") { reject(c, "El dato es renta, costo, valor fiscal, rango agregado u otra referencia"); continue; }
+    if (mode === "rent" ? c.operation_type !== "rent" : (!["offer", "closed_sale"].includes(c.operation_type) || c.price_basis !== "total")) { reject(c, mode === "rent" ? "El dato no es una renta mensual" : "El dato es renta, costo, valor fiscal, rango agregado u otra referencia"); continue; }
     if (c.property_type !== subject.property_type) { reject(c, "Tipo de inmueble distinto"); continue; }
     if (!sameLocation(c.region, subject.region) || !sameLocation(c.municipality, subject.municipality)) { reject(c, "Ubicación fuera del mercado definido"); continue; }
     const adjacent = !!subject.locality && !sameLocation(c.locality, subject.locality);
@@ -237,7 +238,7 @@ export function selectComparables(subject: Row, inputs: Row[], retrievedUrls: st
   // Ofertas y cierres no se mezclan: se usa la serie con al menos tres registros.
   const offers = included.filter((c) => c.operation_type === "offer");
   const closes = included.filter((c) => c.operation_type === "closed_sale");
-  const chosen = closes.length >= 3 ? closes : offers;
+  const chosen = mode === "rent" ? [...included] : closes.length >= 3 ? closes : offers;
   for (const c of included.filter((x) => !chosen.includes(x))) reject(c, "Serie de cierre/oferta diferente; se muestra como contexto");
   chosen.sort((a, b) => a.missing_specs.length - b.missing_specs.length || Math.abs(a.area / subject.area - 1) - Math.abs(b.area / subject.area - 1));
   if (chosen.length > 10) for (const c of chosen.splice(10)) reject(c, "Se conservan las diez referencias más semejantes");

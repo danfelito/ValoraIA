@@ -17,7 +17,7 @@ ${paragraphs.map(p => `<p style="margin:0 0 14px;font-size:15px;line-height:1.6"
 ${button ? `<p style="margin:22px 0"><a href="${esc(button.url)}" style="display:inline-block;background:#ed1c2e;color:#ffffff;text-decoration:none;font-weight:bold;padding:13px 22px;border-radius:8px;font-size:15px">${esc(button.label)}</a></p>` : ""}
 ${note ? `<p style="margin:0 0 14px;font-size:13px;line-height:1.5;color:#666666">${note}</p>` : ""}
 </td></tr>
-<tr><td style="padding:18px 28px;border-top:1px solid #e6e6e6;font-size:12px;line-height:1.5;color:#777777">¿Algo no salió como esperabas? Responde este correo o escribe a <a href="mailto:${SUPPORT}" style="color:#ed1c2e">${SUPPORT}</a> para pedir una revisión.<br>La opinión de valor comercial es orientativa y no sustituye un avalúo profesional firmado.</td></tr>
+<tr><td style="padding:18px 28px;border-top:1px solid #e6e6e6;font-size:12px;line-height:1.5;color:#777777">¿Algo no salió como esperabas? Responde este correo o escribe a <a href="mailto:${SUPPORT}" style="color:#ed1c2e">${SUPPORT}</a> para pedir una revisión.<br>Nuestras opiniones de valor y de renta son orientativas y no sustituyen un avalúo profesional firmado.</td></tr>
 </table></td></tr></table></body></html>`;
   const strip = (s: string) => s.replace(/<br\s*\/?>/g, "\n").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
   const text = [title, "", ...paragraphs.map(strip), ...(button ? ["", `${button.label}: ${button.url}`] : []), ...(note ? ["", strip(note)] : []), "", `Soporte: ${SUPPORT}`].join("\n");
@@ -28,29 +28,30 @@ export function renderEmail(kind: string, request: Row, extra: { report?: Row | 
   const folio = request.valuation_cases?.folio || "tu solicitud", hello = firstName(request.client_name) ? `Hola ${esc(firstName(request.client_name))}:` : "Hola:";
   const tracking = `${SITE}/servicios.html?tipo=comercial&pago=regreso&solicitud=${encodeURIComponent(request.id)}`;
   const waived = request.payment_provider === "admin_waiver";
+  const rent = request.intake_data?.report_kind === "rent", product = rent ? "opinión de renta" : "opinión de valor comercial";
   const outcome = extra.report?.report_data?.outcome, reason = extra.report?.report_data?.reason || extra.report?.error_message || "";
   const amount = Number(request.payment_amount) > 0 ? `$${Number(request.payment_amount).toLocaleString("es-MX")} ${request.payment_currency || "MXN"}` : "";
 
   if (kind === "payment_received") {
     const body = layout(waived ? "Registramos tu solicitud" : "Recibimos tu pago", [hello,
-      waived ? `Tu solicitud de opinión de valor comercial quedó registrada con el folio <strong>${esc(folio)}</strong>.`
-             : `Confirmamos tu pago${amount ? ` de <strong>${esc(amount)}</strong>` : ""} por la opinión de valor comercial, folio <strong>${esc(folio)}</strong>.`,
+      waived ? `Tu solicitud de ${product} quedó registrada con el folio <strong>${esc(folio)}</strong>.`
+             : `Confirmamos tu pago${amount ? ` de <strong>${esc(amount)}</strong>` : ""} por la ${product}, folio <strong>${esc(folio)}</strong>.`,
       "Ya estamos leyendo tu información y consultando referencias de mercado. Normalmente toma unos minutos; si tu expediente necesita una revisión adicional, también te avisaremos.",
       "<strong>Te enviaremos otro correo en cuanto tu documento esté listo.</strong> No necesitas dejar la página abierta."],
       { label: "Ver el avance", url: tracking }, "El enlace de avance funciona en el mismo navegador donde hiciste la solicitud.");
     return { subject: `${waived ? "Registramos tu solicitud" : "Recibimos tu pago"} · folio ${folio}`, ...body };
   }
   if (kind === "document_ready") {
-    const estimated = outcome === "estimated" || !outcome;
-    const body = layout(estimated ? "Tu opinión de valor comercial está lista" : "Tu informe de análisis está disponible", [hello,
-      estimated ? `Terminamos el análisis del folio <strong>${esc(folio)}</strong>. Tu documento incluye el valor estimado, el rango, los comparables utilizados y la metodología.`
+    const estimated = outcome === "estimated" || !outcome || !!extra.report?.report_data?.market_estimate?.value;
+    const body = layout(estimated ? `Tu ${product} está lista` : "Tu informe de análisis está disponible", [hello,
+      estimated ? `Terminamos el análisis del folio <strong>${esc(folio)}</strong>. Tu documento incluye ${rent ? "la renta mensual estimada" : "el valor estimado"}, el rango, los comparables utilizados y la metodología.`
                 : `Terminamos de revisar el folio <strong>${esc(folio)}</strong>. Con la evidencia disponible no fue posible sustentar una cifra confiable, así que tu documento explica qué se encontró y qué información hace falta.`,
       ...(!estimated && reason ? [`<strong>Motivo:</strong> ${esc(reason)}`] : []),
       ...(!estimated ? ["Si quieres que lo revisemos contigo o completar información, responde este correo."] : []),
       extra.attached ? "Va adjunto en PDF y también puedes descargarlo con el botón." : "Puedes descargarlo con el botón."],
       extra.downloadUrl ? { label: "Descargar PDF", url: extra.downloadUrl } : undefined,
       "El enlace de descarga vence en 7 días. No lo compartas: da acceso directo a tu documento.");
-    return { subject: `${estimated ? "Tu opinión de valor está lista" : "Tu informe de análisis está disponible"} · folio ${folio}`, ...body };
+    return { subject: `${estimated ? (rent ? "Tu opinión de renta está lista" : "Tu opinión de valor está lista") : "Tu informe de análisis está disponible"} · folio ${folio}`, ...body };
   }
   if (kind === "needs_review") {
     const body = layout("Tu expediente requiere una revisión", [hello,
