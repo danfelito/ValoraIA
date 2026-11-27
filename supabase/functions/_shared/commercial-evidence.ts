@@ -68,6 +68,14 @@ export function consultedUrls(raw: Row): string[] {
 }
 
 
+async function objectStamp(admin: any, source: Row): Promise<string | null> {
+  try {
+    const parts = String(source.storage_path).split("/"), name = parts.pop(), dir = parts.join("/");
+    const listed = await admin.storage.from(source.bucket).list(dir, { search: name, limit: 100 });
+    const o = (listed.data || []).find((x: Row) => x.name === name);
+    return o ? [o.metadata?.eTag || o.id || "", o.metadata?.size || "", o.updated_at || ""].join("|") : null;
+  } catch { return null; }
+}
 function getSaved(source: Row): Row {
   return source.kind === "case" ? source.metadata?.commercial_evidence : source.analysis?.commercial_evidence;
 }
@@ -101,19 +109,27 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
   assertSourcePath(source);
   let cached = getSaved(source);
   if (!(await validEvidence(cached, source.organization_id, config.secret))) cached = null;
-  let file: Uint8Array | null = null, pdf: any = null, pages = 1, hash = "";
+  let file: Uint8Array | null = null, pdf: any = null, pages = 1, hash = "", stamp: string | null = null;
   if (source.source_type === "url") {
     if (!canonicalUrl(source.source_url)) throw new Error("La fuente no contiene una URL pública válida");
     // La referencia web del repositorio se reconsulta al cambiar el día.
     hash = await digest(new TextEncoder().encode(source.source_url + "|" + new Date().toISOString().slice(0, 10)));
   } else {
+    // Huella del archivo sin descargarlo (etag, tamaño y fecha). Si coincide con la evidencia ya
+    // completa, no se vuelve a bajar: la biblioteca técnica pesa decenas de MB y cada paso del
+    // proceso pasaba por aquí, lo que agotaba la cuota de transferencia de Supabase.
+    stamp = await objectStamp(admin, source);
+    if (cached && cached.complete && stamp && cached.object_stamp === stamp) return { ...source, evidence: cached, reused: true };
     const blob = check(await admin.storage.from(source.bucket).download(source.storage_path));
     if (!blob) throw new Error("No se pudo leer " + source.title);
     file = new Uint8Array(await blob.arrayBuffer());
     hash = await digest(file);
     // Check the original bytes, but do not parse/render a completed PDF again.
     // A replaced file still invalidates this cache even if its path is unchanged.
-    if (cached && cached.content_hash === hash && cached.complete) return { ...source, evidence: cached, reused: true };
+    if (cached && cached.content_hash === hash && cached.complete) {
+      if (stamp && cached.object_stamp !== stamp) { cached.object_stamp = stamp; cached.signature = await sign(cached, config.secret); await save(admin, source, cached, "ready"); }
+      return { ...source, evidence: cached, reused: true };
+    }
     if (source.mime_type === "application/pdf" || /\.pdf$/i.test(source.file_name || "")) {
       pdf = await PDFDocument.load(file);
       pages = pdf.getPageCount();
@@ -132,7 +148,7 @@ export async function processSourceStep(admin: any, source: Row, config: Row, pr
   }
   if (!cached || cached.content_hash !== hash) cached = {
     started_at: new Date().toISOString(), version: PIPELINE_VERSION, organization_id: source.organization_id, content_hash: hash,
-    page_count: pages, chunks: [], complete: false, summary: "", facts: [], price_references: [],
+    page_count: pages, chunks: [], complete: false, summary: "", facts: [], price_references: [], object_stamp: stamp,
     valuation_guidance: [], warnings: [],
   };
   const done = new Set<number>(cached.chunks.flatMap((chunk: Row) => chunk.analysis.pages.map((p: Row) => Number(p.page_number))));
