@@ -69,10 +69,11 @@ export function renderEmail(kind: string, request: Row, extra: { report?: Row | 
   }
   // Avisos para el administrador
   const titles: Row = { admin_payment_received: waived ? "Nueva solicitud (administrador, sin pago)" : "Nuevo pago recibido",
-    admin_document_ready: outcome && outcome !== "estimated" ? "Documento entregado SIN cifra" : "Documento generado", admin_needs_review: "Expediente detenido: requiere revisión" };
+    admin_document_ready: outcome && outcome !== "estimated" && !extra.report?.report_data?.market_estimate?.value ? "Documento entregado SIN cifra" : rent ? "Opinión de renta generada" : "Documento generado", admin_needs_review: "Expediente detenido: requiere revisión" };
   const body = layout(titles[kind] || "Aviso de ValoraIA", [
     `<strong>Folio:</strong> ${esc(folio)}`,
     `<strong>Cliente:</strong> ${esc(request.client_name)} · ${esc(request.client_email)} · ${esc(request.client_phone || "sin teléfono")}`,
+    `<strong>Servicio:</strong> ${rent ? "Opinión de renta" : "Opinión de valor comercial"}`,
     `<strong>Inmueble:</strong> ${esc(request.property_type)} · ${esc(request.intake_data?.municipality || "")} ${esc(request.intake_data?.region || "")}`,
     ...(amount && !waived ? [`<strong>Pago:</strong> ${esc(amount)} (${esc(request.payment_method || request.payment_provider || "")})`] : []),
     ...(reason && kind !== "admin_payment_received" ? [`<strong>Motivo:</strong> ${esc(reason)}`] : []),
