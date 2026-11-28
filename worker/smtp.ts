@@ -47,7 +47,9 @@ export class Smtp {
     return all;
   }
   private async cmd(c: string, expect: number[]) { await this.writer.write(enc.encode(c + "\r\n")); return this.reply(expect); }
+  step = "";
   async open() {
+    this.step = "conexión";
     this.socket = connect({ hostname: this.cfg.host, port: this.cfg.port }, { secureTransport: this.cfg.port === 465 ? "on" : "starttls", allowHalfOpen: false });
     this.reader = this.socket.readable.getReader(); this.writer = this.socket.writable.getWriter();
     await this.reply([220]);
@@ -59,9 +61,12 @@ export class Smtp {
       this.reader = this.socket.readable.getReader(); this.writer = this.socket.writable.getWriter();
       await this.cmd("EHLO valoraia.circulointernacionalveracruz.org", [250]);
     }
+    this.step = "inicio de sesión";
     await this.cmd("AUTH LOGIN", [334]);
     await this.cmd(btoa(this.cfg.user), [334]);
+    this.step = "contraseña";
     await this.cmd(btoa(this.cfg.pass), [235]);
+    this.step = "listo";
   }
   async send(m: Mail): Promise<string> {
     await this.cmd(`MAIL FROM:<${bare(m.from)}>`, [250]);

@@ -129,7 +129,8 @@ async function deepHealth(env: Env) {
     correo: await check(async () => {
       if (!e.SMTP_PASSWORD) return { ok: false, error: "Falta SMTP_PASSWORD" };
       const smtp = new Smtp({ host: e.SMTP_HOST, port: Number(e.SMTP_PORT || 465), user: e.SMTP_USER, pass: e.SMTP_PASSWORD });
-      await smtp.open(); await smtp.close(); return { ok: true };
+      try { await smtp.open(); } catch (err) { return { ok: false, paso: smtp.step, error: err instanceof Error ? err.message.slice(0, 160) : "falló" }; }
+      await smtp.close(); return { ok: true };
     }),
   };
   lastDeep = { at: Date.now(), result };
