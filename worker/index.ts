@@ -1,4 +1,3 @@
-import { Smtp } from "./smtp.ts";
 // ValoraIA en Cloudflare: un solo Worker sirve el sitio, la API, los archivos (R2), la base (D1),
 // los trabajos largos (Workflows) y el robot programado (Cron Trigger).
 import { WorkflowEntrypoint } from "cloudflare:workers";
@@ -87,7 +86,7 @@ export default {
           if (req.headers.get("Authorization") === "Bearer " + serviceKey(env)) return json({ error: "Credencial interna no permitida desde la red" }, 403);
           return await handler(req);
         }
-        if (url.pathname === "/health") return json(url.searchParams.has("deep") ? await deepHealth(env) : { ok: true, at: new Date().toISOString() });
+        if (url.pathname === "/health") return json(url.searchParams.has("deep") ? await deepHealth(env, url) : { ok: true, at: new Date().toISOString() });
         return env.ASSETS.fetch(req);
       } catch (e) {
         console.error(e);
@@ -106,8 +105,8 @@ export default {
 // sin el límite de 30 s de las tareas en segundo plano de una petición.
 // Revisión de conexiones: solo responde sí/no por servicio, nunca valores. Se limita a una corrida por minuto.
 let lastDeep: { at: number; result: unknown } | null = null;
-async function deepHealth(env: Env) {
-  if (lastDeep && Date.now() - lastDeep.at < 60_000) return lastDeep.result;
+async function deepHealth(env: Env, url: URL) {
+  if (lastDeep && Date.now() - lastDeep.at < 30_000) return lastDeep.result;
   const check = async (fn: () => Promise<unknown>) => { try { const r = await fn(); return r === undefined ? { ok: true } : r; } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "falló" }; } };
   const e = env as any;
   const result = {
@@ -127,17 +126,13 @@ async function deepHealth(env: Env) {
       return r.ok ? { ok: true, modo: env2 || "sandbox" } : { ok: false, error: `Openpay respondió ${r.status}`, modo: env2 || "sandbox" };
     }),
     correo: await check(async () => {
-      if (!e.SMTP_PASSWORD) return { ok: false, error: "Falta SMTP_PASSWORD" };
-      const out: Record<string, unknown> = {};
-      for (const port of [Number(e.SMTP_PORT || 465), 587, 465].filter((p, i, a) => a.indexOf(p) === i)) {
-        const smtp = new Smtp({ host: e.SMTP_HOST, port, user: e.SMTP_USER, pass: e.SMTP_PASSWORD });
-        try { await smtp.open(); await smtp.close(); out[`puerto_${port}`] = "ok"; }
-        catch (err) { out[`puerto_${port}`] = `falló en ${smtp.step}: ${err instanceof Error ? err.message.slice(0, 120) : ""}`; }
-      }
-      // Control: ¿Cloudflare puede abrir una conexión de correo hacia otro servidor? (sin iniciar sesión)
-      try { const { connect } = await import("cloudflare:sockets"); const s = connect({ hostname: "smtp.gmail.com", port: 465 }, { secureTransport: "on" }); await s.opened; const r = s.readable.getReader(); const { value } = await r.read(); out.control_gmail = new TextDecoder().decode(value).slice(0, 3); await s.close(); }
-      catch (err) { out.control_gmail = `falló: ${err instanceof Error ? err.message.slice(0, 100) : ""}`; }
-      return { ok: out[`puerto_${Number(e.SMTP_PORT || 465)}`] === "ok", ...out };
+      if (!e.EMAIL) return { ok: false, error: "Falta el envío de correo de Cloudflare (binding EMAIL)" };
+      // La prueba solo se envía al buzón propio de la inmobiliaria, para que nadie pueda usarla para mandar correos a terceros.
+      const to = e.SMTP_USER || "contacto@circulointernacionalveracruz.org";
+      if (!url.searchParams.has("mail")) return { ok: true, nota: "Envío de Cloudflare conectado; agrega &mail para enviar una prueba al buzón de contacto" };
+      const r = await e.EMAIL.send({ from: { email: e.SMTP_USER || "contacto@circulointernacionalveracruz.org", name: "ValoraIA · Círculo Internacional" }, to,
+        subject: "Prueba de correo · ValoraIA", text: "Este es un correo de prueba de ValoraIA desde Cloudflare.", html: "<p>Este es un correo de prueba de <b>ValoraIA</b> desde Cloudflare.</p>" });
+      return { ok: true, enviado_a: to, id: r?.messageId };
     }),
   };
   lastDeep = { at: Date.now(), result };

@@ -16,6 +16,8 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/functions/*", "/health"]
   },
+  // Correo saliente con Cloudflare Email Service (dominio circulointernacionalveracruz.org).
+  "send_email": [{ "name": "EMAIL" }],
   "d1_databases": [{ "binding": "DB", "database_name": "valoraia", "database_id": "e678cfe7-26be-4a4f-ba18-58a823d0fd9c", "migrations_dir": "cloudflare/migrations" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "valoraia-files" }],
   "workflows": [{ "name": "valoraia-jobs", "binding": "JOBS", "class_name": "Jobs" }],

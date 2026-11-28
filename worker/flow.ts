@@ -53,15 +53,34 @@ function smtpConfig(env: Env) {
     from: env.MAIL_FROM || `ValoraIA · Círculo Internacional <${user}>` };
 }
 
+// Envío por Cloudflare Email Service (binding EMAIL). El SMTP de Hostinger queda como respaldo,
+// aunque desde Workers no es alcanzable porque su servidor está dentro de la red de Cloudflare.
+interface Sender { kind: string; send(m: Mail): Promise<string>; close(): Promise<void> }
+const fromParts = (from: string) => { const m = from.match(/^(.*)<([^>]+)>$/); return m ? { name: m[1].trim(), email: m[2].trim() } : from; };
+async function openSender(env: Env, cfg: ReturnType<typeof smtpConfig>): Promise<Sender> {
+  const binding = (env as any).EMAIL;
+  if (binding && (env as any).MAIL_PROVIDER !== "smtp") return {
+    kind: "cloudflare",
+    async send(m) {
+      const r = await binding.send({ from: fromParts(m.from), to: m.to, replyTo: m.replyTo, subject: m.subject, text: m.text || undefined, html: m.html || undefined,
+        attachments: m.attachments?.map(a => ({ content: a.content, filename: a.filename, type: a.contentType, disposition: "attachment" })) });
+      return r?.messageId || "";
+    },
+    async close() {},
+  };
+  const smtp = new Smtp(cfg); await smtp.open();
+  return { kind: "smtp", send: m => smtp.send(m), close: () => smtp.close() };
+}
+
 async function sendPending(env: Env, admin: any, summary: Row) {
   const cfg = smtpConfig(env);
-  summary.configured = !!cfg.pass;
-  if (!cfg.pass) { await admin.from("notification_outbox").update({ status: "needs_configuration" }).eq("status", "queued"); return; }
+  summary.configured = !!(env as any).EMAIL || !!cfg.pass;
+  if (!summary.configured) { await admin.from("notification_outbox").update({ status: "needs_configuration" }).eq("status", "queued"); return; }
   const claimed: Row[] = await runFlowRpc(env, "flow_claim_notifications", { p_limit: 10 });
   if (!claimed.length) return;
-  const smtp = new Smtp(cfg);
-  summary.stage = "smtp_login";
-  try { await smtp.open(); } catch (e) { summary.smtp_error = String(e instanceof Error ? e.message : e).slice(0, 200); return; }
+  summary.stage = "mail_open";
+  let smtp: Sender;
+  try { smtp = await openSender(env, cfg); summary.provider = smtp.kind; } catch (e) { summary.smtp_error = String(e instanceof Error ? e.message : e).slice(0, 200); return; }
   for (const row of claimed) {
     try {
       const mail: Mail = { from: cfg.from, to: row.recipient, replyTo: cfg.user, subject: row.subject || "ValoraIA", text: row.body_text || "", html: row.body_html || undefined };
@@ -89,7 +108,7 @@ async function sendPending(env: Env, admin: any, summary: Row) {
         Object.assign(mail, renderEmail(kind, request, { report, downloadUrl, attached: !!mail.attachments, isDocument }));
       }
       const id = await smtp.send(mail);
-      await admin.from("notification_outbox").update({ status: "sent", sent_at: now(), provider: "smtp", provider_message_id: id, error_message: null,
+      await admin.from("notification_outbox").update({ status: "sent", sent_at: now(), provider: smtp.kind, provider_message_id: id, error_message: null,
         attempts: (row.attempts || 0) + 1, subject: mail.subject, body_text: mail.text }).eq("id", row.id);
       if (kind === "document_ready" && request) {
         await admin.from("service_requests").update({ document_emailed_at: now() }).eq("id", request.id).eq("document_storage_path", request.document_storage_path);
