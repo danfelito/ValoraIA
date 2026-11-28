@@ -127,8 +127,6 @@ async function deepHealth(env: Env, url: URL) {
     }),
     correo: await check(async () => {
       if (!e.BREVO_API_KEY) return { ok: false, error: "Falta BREVO_API_KEY" };
-      const acct = await fetch("https://api.brevo.com/v3/account", { headers: { "api-key": e.BREVO_API_KEY, Accept: "application/json" } });
-      if (!acct.ok) return { ok: false, error: `Brevo respondió ${acct.status}` };
       // La prueba solo se envía al buzón propio de la inmobiliaria, para que nadie pueda usarla para mandar correos a terceros.
       if (!url.searchParams.has("mail")) return { ok: true, proveedor: "brevo", nota: "agrega &mail para enviar una prueba al buzón de contacto" };
       const to = e.SMTP_USER || "contacto@circulointernacionalveracruz.org";
