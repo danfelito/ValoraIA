@@ -134,6 +134,9 @@ async function deepHealth(env: Env) {
         try { await smtp.open(); await smtp.close(); out[`puerto_${port}`] = "ok"; }
         catch (err) { out[`puerto_${port}`] = `falló en ${smtp.step}: ${err instanceof Error ? err.message.slice(0, 120) : ""}`; }
       }
+      // Control: ¿Cloudflare puede abrir una conexión de correo hacia otro servidor? (sin iniciar sesión)
+      try { const { connect } = await import("cloudflare:sockets"); const s = connect({ hostname: "smtp.gmail.com", port: 465 }, { secureTransport: "on" }); await s.opened; const r = s.readable.getReader(); const { value } = await r.read(); out.control_gmail = new TextDecoder().decode(value).slice(0, 3); await s.close(); }
+      catch (err) { out.control_gmail = `falló: ${err instanceof Error ? err.message.slice(0, 100) : ""}`; }
       return { ok: out[`puerto_${Number(e.SMTP_PORT || 465)}`] === "ok", ...out };
     }),
   };

@@ -51,6 +51,8 @@ export class Smtp {
   async open() {
     this.step = "conexión";
     this.socket = connect({ hostname: this.cfg.host, port: this.cfg.port }, { secureTransport: this.cfg.port === 465 ? "on" : "starttls", allowHalfOpen: false });
+    try { await this.socket.opened; } catch (e) { throw new Error(`No se pudo abrir la conexión con ${this.cfg.host}:${this.cfg.port} (${e instanceof Error ? e.message : e})`); }
+    this.step = "saludo";
     this.reader = this.socket.readable.getReader(); this.writer = this.socket.writable.getWriter();
     await this.reply([220]);
     await this.cmd("EHLO valoraia.circulointernacionalveracruz.org", [250]);
