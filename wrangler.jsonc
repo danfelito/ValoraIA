@@ -3,6 +3,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "valoraia",
+  // Conserva las variables agregadas a mano en el panel de Cloudflare al publicar desde GitHub.
+  "keep_vars": true,
   "main": "worker/index.ts",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat"],
