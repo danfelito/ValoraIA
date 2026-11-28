@@ -126,13 +126,16 @@ async function deepHealth(env: Env, url: URL) {
       return r.ok ? { ok: true, modo: env2 || "sandbox" } : { ok: false, error: `Openpay respondió ${r.status}`, modo: env2 || "sandbox" };
     }),
     correo: await check(async () => {
-      if (!e.EMAIL) return { ok: false, error: "Falta el envío de correo de Cloudflare (binding EMAIL)" };
+      if (!e.BREVO_API_KEY) return { ok: false, error: "Falta BREVO_API_KEY" };
+      const acct = await fetch("https://api.brevo.com/v3/account", { headers: { "api-key": e.BREVO_API_KEY, Accept: "application/json" } });
+      if (!acct.ok) return { ok: false, error: `Brevo respondió ${acct.status}` };
       // La prueba solo se envía al buzón propio de la inmobiliaria, para que nadie pueda usarla para mandar correos a terceros.
+      if (!url.searchParams.has("mail")) return { ok: true, proveedor: "brevo", nota: "agrega &mail para enviar una prueba al buzón de contacto" };
       const to = e.SMTP_USER || "contacto@circulointernacionalveracruz.org";
-      if (!url.searchParams.has("mail")) return { ok: true, nota: "Envío de Cloudflare conectado; agrega &mail para enviar una prueba al buzón de contacto" };
-      const r = await e.EMAIL.send({ from: { email: e.SMTP_USER || "contacto@circulointernacionalveracruz.org", name: "ValoraIA · Círculo Internacional" }, to,
-        subject: "Prueba de correo · ValoraIA", text: "Este es un correo de prueba de ValoraIA desde Cloudflare.", html: "<p>Este es un correo de prueba de <b>ValoraIA</b> desde Cloudflare.</p>" });
-      return { ok: true, enviado_a: to, id: r?.messageId };
+      const { brevoSend } = await import("./flow.ts");
+      const id = await brevoSend(e.BREVO_API_KEY, { from: `ValoraIA · Círculo Internacional <${to}>`, to, subject: "Prueba de correo · ValoraIA",
+        text: "Este es un correo de prueba de ValoraIA.", html: "<p>Este es un correo de prueba de <b>ValoraIA</b>.</p>" });
+      return { ok: true, proveedor: "brevo", enviado_a: to, id };
     }),
   };
   lastDeep = { at: Date.now(), result };

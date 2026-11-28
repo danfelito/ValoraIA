@@ -57,7 +57,22 @@ function smtpConfig(env: Env) {
 // aunque desde Workers no es alcanzable porque su servidor está dentro de la red de Cloudflare.
 interface Sender { kind: string; send(m: Mail): Promise<string>; close(): Promise<void> }
 const fromParts = (from: string) => { const m = from.match(/^(.*)<([^>]+)>$/); return m ? { name: m[1].trim(), email: m[2].trim() } : from; };
+const b64 = (u: Uint8Array) => { let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
+export async function brevoSend(apiKey: string, m: Mail): Promise<string> {
+  const from = fromParts(m.from), sender = typeof from === "string" ? { email: from } : from;
+  const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST", headers: { "api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ sender, to: [{ email: m.to }], replyTo: m.replyTo ? { email: m.replyTo } : undefined, subject: m.subject,
+      htmlContent: m.html || undefined, textContent: m.text || undefined,
+      attachment: m.attachments?.map(a => ({ name: a.filename, content: b64(a.content) })) }),
+  });
+  const body: any = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`Brevo ${r.status}: ${body?.message || body?.code || "error"}`);
+  return body?.messageId || "";
+}
 async function openSender(env: Env, cfg: ReturnType<typeof smtpConfig>): Promise<Sender> {
+  const brevo = (env as any).BREVO_API_KEY;
+  if (brevo) return { kind: "brevo", send: m => brevoSend(brevo, m), async close() {} };
   const binding = (env as any).EMAIL;
   if (binding && (env as any).MAIL_PROVIDER !== "smtp") return {
     kind: "cloudflare",
@@ -74,7 +89,7 @@ async function openSender(env: Env, cfg: ReturnType<typeof smtpConfig>): Promise
 
 async function sendPending(env: Env, admin: any, summary: Row) {
   const cfg = smtpConfig(env);
-  summary.configured = !!(env as any).EMAIL || !!cfg.pass;
+  summary.configured = !!(env as any).BREVO_API_KEY || !!(env as any).EMAIL || !!cfg.pass;
   if (!summary.configured) { await admin.from("notification_outbox").update({ status: "needs_configuration" }).eq("status", "queued"); return; }
   const claimed: Row[] = await runFlowRpc(env, "flow_claim_notifications", { p_limit: 10 });
   if (!claimed.length) return;
