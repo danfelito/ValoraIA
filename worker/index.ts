@@ -1,3 +1,4 @@
+import { Smtp } from "./smtp.ts";
 // ValoraIA en Cloudflare: un solo Worker sirve el sitio, la API, los archivos (R2), la base (D1),
 // los trabajos largos (Workflows) y el robot programado (Cron Trigger).
 import { WorkflowEntrypoint } from "cloudflare:workers";
@@ -86,7 +87,7 @@ export default {
           if (req.headers.get("Authorization") === "Bearer " + serviceKey(env)) return json({ error: "Credencial interna no permitida desde la red" }, 403);
           return await handler(req);
         }
-        if (url.pathname === "/health") return json({ ok: true, at: new Date().toISOString() });
+        if (url.pathname === "/health") return json(url.searchParams.has("deep") ? await deepHealth(env) : { ok: true, at: new Date().toISOString() });
         return env.ASSETS.fetch(req);
       } catch (e) {
         console.error(e);
@@ -103,6 +104,38 @@ export default {
 
 // Trabajos largos: cada paso del informe o del análisis de la biblioteca corre aquí,
 // sin el límite de 30 s de las tareas en segundo plano de una petición.
+// Revisión de conexiones: solo responde sí/no por servicio, nunca valores. Se limita a una corrida por minuto.
+let lastDeep: { at: number; result: unknown } | null = null;
+async function deepHealth(env: Env) {
+  if (lastDeep && Date.now() - lastDeep.at < 60_000) return lastDeep.result;
+  const check = async (fn: () => Promise<unknown>) => { try { const r = await fn(); return r === undefined ? { ok: true } : r; } catch (e) { return { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "falló" }; } };
+  const e = env as any;
+  const result = {
+    at: new Date().toISOString(),
+    base_de_datos: await check(async () => { const r = await env.DB.prepare("SELECT count(*) n FROM organizations").first<{ n: number }>(); return { ok: (r?.n || 0) > 0 }; }),
+    archivos_r2: await check(async () => { await env.FILES.put("_health/ping.txt", "ok"); const o = await env.FILES.get("_health/ping.txt"); return { ok: (await o?.text()) === "ok" }; }),
+    openai: await check(async () => {
+      if (!e.OPENAI_API_KEY) return { ok: false, error: "Falta OPENAI_API_KEY" };
+      const r = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${e.OPENAI_API_KEY}` } });
+      return r.ok ? { ok: true } : { ok: false, error: `OpenAI respondió ${r.status}` };
+    }),
+    openpay: await check(async () => {
+      if (!e.OPENPAY_MERCHANT_ID || !e.OPENPAY_PRIVATE_KEY) return { ok: false, error: "Faltan llaves de Openpay" };
+      const env2 = (await env.DB.prepare("SELECT openpay_environment v FROM app_settings LIMIT 1").first<{ v: string }>())?.v;
+      const base = env2 === "production" ? "https://api.openpay.mx" : "https://sandbox-api.openpay.mx";
+      const r = await fetch(`${base}/v1/${e.OPENPAY_MERCHANT_ID}`, { headers: { Authorization: `Basic ${btoa(e.OPENPAY_PRIVATE_KEY + ":")}` } });
+      return r.ok ? { ok: true, modo: env2 || "sandbox" } : { ok: false, error: `Openpay respondió ${r.status}`, modo: env2 || "sandbox" };
+    }),
+    correo: await check(async () => {
+      if (!e.SMTP_PASSWORD) return { ok: false, error: "Falta SMTP_PASSWORD" };
+      const smtp = new Smtp({ host: e.SMTP_HOST, port: Number(e.SMTP_PORT || 465), user: e.SMTP_USER, pass: e.SMTP_PASSWORD });
+      await smtp.open(); await smtp.close(); return { ok: true };
+    }),
+  };
+  lastDeep = { at: Date.now(), result };
+  return result;
+}
+
 export class Jobs extends WorkflowEntrypoint<Env, { name: string; body: string }> {
   async run(event: WorkflowEvent<{ name: string; body: string }>, step: WorkflowStep) {
     const { name, body } = event.payload;
